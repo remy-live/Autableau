@@ -1266,9 +1266,16 @@ module.exports = async function (browser) {
     r.verifie('TROIS ANNOTATIONS DE SUITE NE DÉPLACENT PAS LA PAGE',
         apresCumul.every(v => v === cumul), JSON.stringify({ depart: cumul, apresCumul }));
 
-    // LE CONTRE-CAS. On ne déplace que ce qui est à nous : un bloc DÉJÀ ÉCRIT
-    // qu'on rouvre garde sa place, et c'est le tableau qui se range — le
+    // LE CONTRE-CAS. Un bloc DÉJÀ ÉCRIT qu'on rouvre garde sa place : le
     // déplacer reviendrait à déplacer le texte du professeur.
+    //
+    // ET DEPUIS QUE LES BARRES S'ÉCARTENT, LE TABLEAU NE SE RANGE PLUS NON
+    // PLUS. Ce contrôle exigeait autrefois que la page bouge — c'était le
+    // compromis de l'époque : entre déplacer le texte et déplacer la page, on
+    // choisissait la page. Il n'y a plus à choisir. La barre monte au-dessus
+    // de la ligne, le texte reste où il est, la page aussi. Mesuré avant la
+    // correction : sept pixels de polycopié emportés à chaque retouche d'une
+    // note écrite en bas.
     const contre = await page.evaluate(() => {
         if (typeof finalizeText === 'function') finalizeText();
         texts.length = 0; panY = 0;
@@ -1286,9 +1293,18 @@ module.exports = async function (browser) {
         const t = texts.find(x => x.id === id);
         return { panY: Math.round(panY), ty: t ? +t.y.toFixed(2) : null };
     }, [contre.id]);
-    r.verifie('EN REVANCHE UN BLOC DÉJÀ ÉCRIT GARDE SA PLACE : c\'est le tableau qui se range',
-        apresContre.panY !== contre.avant.panY && apresContre.ty === contre.avant.ty,
+    r.verifie('UN BLOC DÉJÀ ÉCRIT GARDE SA PLACE, ET LA PAGE AUSSI',
+        apresContre.panY === contre.avant.panY && apresContre.ty === contre.avant.ty,
         JSON.stringify({ contre, apresContre }));
+    // Et c'est bien la barre qui a cédé la place, pas le hasard.
+    const quiACede = await page.evaluate(() => {
+        const s = document.getElementById('bar-style');
+        const d = document.getElementById('bar-document');
+        return { style: s ? s.dataset.ecartee === '1' : false,
+                 doc: d ? d.dataset.ecartee === '1' : false };
+    });
+    r.verifie('c\'est la barre qui s\'est écartée',
+        quiACede.style || quiACede.doc, JSON.stringify(quiACede));
 
     await page.evaluate(() => {
         if (typeof finalizeText === 'function') finalizeText();

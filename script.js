@@ -7075,6 +7075,118 @@ function plafondQuiGeneLaSaisie() {
     return bas;
 }
 
+// ==================================================================
+// LES BARRES S'ÉCARTENT, LA LIGNE RESTE OÙ ON L'A POSÉE
+// ==================================================================
+// « J'ai posé mon curseur pour écrire là où j'ai entouré, et en fait mon
+//   curseur d'écriture s'est mis au-dessus : je ne peux pas écrire en bas. »
+//
+// MESURÉ, barre de style posée en bas d'un écran de 800 : un clic à 730
+// écrivait quinze pixels plus haut, un clic à 760 en écrivait quarante-cinq.
+// Le bas de la feuille était hors d'atteinte — et c'est là qu'on écrit la
+// consigne, la date, le mot de la fin.
+//
+// LES DEUX RÉPONSES D'AVANT ÉTAIENT MAUVAISES TOUTES LES DEUX. Déplacer le
+// TABLEAU pour dégager la ligne faisait sauter le polycopié sous les yeux de
+// la classe — jusqu'à 297 pixels d'un coup, et cumulatif ; c'est pour cela
+// qu'on l'a retiré. Déplacer la LIGNE, qui l'a remplacé, pose le texte
+// ailleurs que là où le professeur a montré : c'est le défaut d'aujourd'hui.
+//
+// LA TROISIÈME EST LA BONNE : ce qui s'écarte, c'est LA BARRE. Elle est le
+// meuble de l'application ; le clic, lui, est l'intention du professeur. Elle
+// monte juste assez pour se ranger huit pixels AU-DESSUS de la ligne, elle
+// reste entière et utilisable pendant la frappe — on a besoin du gras et de
+// la couleur en écrivant —, et elle redescend dès que la ligne est posée.
+//
+// LE CLAVIER DE L'ÉCRAN NE S'ÉCARTE PAS, ni le tiroir des morceaux, ni la
+// barre de la démonstration. Un clavier qui monte couvre la page qu'on
+// annote, et l'on ne peut de toute façon pas écrire sous ses touches. Pour
+// eux, l'ancienne règle vaut toujours.
+const BARRES_QUI_S_ECARTENT = ['bar-document', 'bar-style'];
+let ecartDesBarresDuBas = 0;
+
+// SA PLACE D'ORIGINE SE RETIENT, ELLE NE SE RECALCULE PAS.
+//
+// Mesuré sur la première version : la barre s'écartait DEUX FOIS — 138 pixels
+// au lieu de 70. L'écart se calculait à partir de « getBoundingClientRect »,
+// qui rend la position du MOMENT ; et comme la barre glisse en douze
+// centièmes de seconde, le deuxième appel la mesurait en plein vol et
+// ajoutait son retard à l'écart déjà posé. On note donc sa vraie place au
+// premier écartement — elle est alors immobile — et l'on calcule toujours
+// depuis celle-là.
+function placeAuReposDeLaBarre(e) {
+    if (e.dataset.reposBas === undefined) {
+        const r = e.getBoundingClientRect();
+        e.dataset.reposBas = String(Math.round(r.bottom + ecartDesBarresDuBas));
+        e.dataset.reposHaut = String(Math.round(r.top + ecartDesBarresDuBas));
+    }
+    return { bas: parseFloat(e.dataset.reposBas), haut: parseFloat(e.dataset.reposHaut) };
+}
+
+function barresDuBasEcartables() {
+    const H = window.innerHeight;
+    return BARRES_QUI_S_ECARTENT
+        .map(id => document.getElementById(id))
+        .filter(e => {
+            if (!e || e.hidden) return false;
+            const s = getComputedStyle(e);
+            if (s.display === 'none' || s.visibility === 'hidden'
+                || parseFloat(s.opacity) < 0.05) return false;
+            const r = e.getBoundingClientRect();
+            if (r.height < 4) return false;
+            // On juge la barre À SA PLACE D'ORIGINE : écartée, elle ne touche
+            // plus le bord bas, et elle cesserait de se reconnaître elle-même.
+            return placeAuReposDeLaBarre(e).bas > H - 90;
+        });
+}
+
+// Monte les barres du bas juste assez pour qu'elles passent au-dessus de la
+// ligne. Rend vrai si elles ont pu s'écarter — la ligne reste alors en place.
+function ecarterLesBarresDuBas(hautDeLaLigne) {
+    const barres = barresDuBasEcartables();
+    if (!barres.length) return false;
+    let voulu = 0;
+    barres.forEach(e => {
+        voulu = Math.max(voulu, placeAuReposDeLaBarre(e).bas - (hautDeLaLigne - 8));
+    });
+    voulu = Math.max(0, Math.round(voulu));
+    if (voulu <= 0) return false;
+    // ET ELLES NE SORTENT PAS PAR LE HAUT. Une ligne écrite tout en haut de
+    // l'écran demanderait de monter la barre hors de vue : on la laisse alors
+    // où elle est, et l'ancienne règle reprend la main.
+    let tient = true;
+    barres.forEach(e => {
+        if (placeAuReposDeLaBarre(e).haut - voulu < 4) tient = false;
+    });
+    if (!tient) return false;
+    // UN ATTRIBUT, ET NON UNE CLASSE. Mesuré : la marque posée en classe
+    // disparaissait entre deux appels — la barre de style se reconstruit à
+    // chaque changement de contexte, et sa liste de classes est réécrite
+    // entière. L'attribut « data », lui, survit.
+    ecartDesBarresDuBas = voulu;
+    document.documentElement.style.setProperty('--barres-ecart', voulu + 'px');
+    barres.forEach(e => { e.dataset.ecartee = '1'; });
+    return true;
+}
+
+function rendreLesBarresDuBas() {
+    // Les places retenues s'oublient DANS TOUS LES CAS : la barre a pu être
+    // déplacée à la main, ou l'écran changer de taille, pendant qu'on écrivait.
+    BARRES_QUI_S_ECARTENT.forEach(id => {
+        const e = document.getElementById(id);
+        if (!e) return;
+        delete e.dataset.ecartee;
+        delete e.dataset.reposBas;
+        delete e.dataset.reposHaut;
+    });
+    if (!ecartDesBarresDuBas) return false;
+    ecartDesBarresDuBas = 0;
+    document.documentElement.style.setProperty('--barres-ecart', '0px');
+    return true;
+}
+window.ecarterLesBarresDuBas = ecarterLesBarresDuBas;
+window.rendreLesBarresDuBas = rendreLesBarresDuBas;
+
 function degagerLaSaisie() {
     if (typeof wysiwygText === 'undefined' || !wysiwygText) return false;
     if (wysiwygText.style.display !== 'block') return false;
@@ -7153,6 +7265,18 @@ function degagerLaSaisie() {
         const ligneNeuve = !(wysiwygText.textContent || '').trim()
             && typeof tempTextLogicalPos !== 'undefined' && tempTextLogicalPos
             && tempTextLogicalPos.zoneDoc === undefined;
+        // LES BARRES D'ABORD. Si elles peuvent s'écarter, rien d'autre ne
+        // bouge : c'est tout l'objet de la correction.
+        //
+        // ET POUR TOUTE LIGNE, NEUVE OU ROUVERTE. La distinction vaut pour les
+        // deux anciens secours — déplacer la ligne, ou déplacer le tableau —
+        // parce qu'ils touchent à ce qui appartient au professeur : le texte
+        // qu'il a déjà écrit, la page qu'il montre. Écarter une barre ne
+        // touche ni l'un ni l'autre. Mesuré : réservée aux lignes neuves, la
+        // règle laissait le tableau sauter de sept pixels dès qu'on rouvrait
+        // une note écrite en bas — et trois retouches au même endroit, c'est
+        // exactement la plainte d'origine.
+        if (ecarterLesBarresDuBas(r.top)) return true;
         if (dy && ligneNeuve) {
             tempTextLogicalPos.y += dy / zoom;   // AVANT de replacer la boîte,
             updateWysiwygPosition();             // qui relit cette position
@@ -13601,6 +13725,8 @@ function finalizeText() {
 
         wysiwygText.style.display = 'none'; wysiwygText.innerText = ''; editingTextId = null; tempTextLogicalPos = null;
         couleurBlocSaisie = null;
+        // La ligne posée, les barres redescendent chez elles.
+        if (typeof rendreLesBarresDuBas === 'function') rendreLesBarresDuBas();
         if (typeof oublierSelectionSaisie === 'function') oublierSelectionSaisie();
         // La barre de style s'était tue le temps de la saisie : le bloc posé,
         // elle reprend la parole — sans quoi elle resterait muette jusqu'au
@@ -13642,6 +13768,8 @@ function poserLaFrappeEnCours() {
         // ressortir au prochain mot.
         wysiwygText.style.display = 'none';
         wysiwygText.innerHTML = '';
+        // Rideau baissé par un autre chemin : les barres redescendent aussi.
+        if (typeof rendreLesBarresDuBas === 'function') rendreLesBarresDuBas();
         return ouverte;
     } finally {
         frappeEnCoursDePose = false;
@@ -30281,6 +30409,11 @@ function plafondDesBarresDuBas() {
     ['bar-document', 'bar-style', 'demo-barre', 'bande-morceaux', 'clavier-ecran'].forEach(id => {
         const e = document.getElementById(id);
         if (!e || e.hidden) return;
+        // UNE BARRE QUI S'EST ÉCARTÉE N'EST PLUS UN PLANCHER. Elle est montée
+        // au-dessus de la ligne qu'on écrit, exprès ; la compter encore ferait
+        // remonter la ligne vers elle, qui remonterait à son tour, et ainsi de
+        // suite jusqu'au haut de l'écran.
+        if (e.dataset.ecartee === '1') return;
         if (id === 'clavier-ecran' && !e.classList.contains('clavier-en-bas')) return;
         const s = getComputedStyle(e);
         if (s.display === 'none' || s.visibility === 'hidden' || parseFloat(s.opacity) < 0.05) return;

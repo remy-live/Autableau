@@ -488,6 +488,22 @@ html {
     pointer-events: auto;
 }
 
+/* ELLES S'ÉCARTENT POUR LA LIGNE QU'ON ÉCRIT SOUS ELLES.
+   « Mon curseur d'écriture s'est mis au-dessus : je ne peux pas écrire en
+   bas. » La barre monte huit pixels au-dessus de la ligne, et le texte reste
+   là où le professeur a cliqué.
+
+   « translate » ET NON « transform » : ces barres portent déjà un
+   « translateX(-50%) » qui les centre — et, debout, un « translateY(-50%) ».
+   Une seconde transformation l'écraserait et la barre partirait sur le côté.
+   La propriété « translate » est posée AVANT « transform » par le navigateur :
+   les deux se composent au lieu de se battre. */
+#bar-document[data-ecartee="1"],
+#bar-style[data-ecartee="1"] {
+    translate: 0 calc(-1 * var(--barres-ecart, 0px));
+    transition: translate .12s ease-out;
+}
+
 /* Écrans étroits (téléphone) : la barre de style s'adapte au lieu de déborder.
    width:max-content est indispensable : la barre est en position fixed à
    left:50%, sans quoi la largeur disponible tombe à 50vw et elle se replie
