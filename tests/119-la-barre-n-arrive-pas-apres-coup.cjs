@@ -79,27 +79,40 @@ module.exports = async function (browser) {
     //    compte combien de fois le travail est fait. Sans repos, ce serait
     //    cinquante ; avec, une poignée.
     // ------------------------------------------------------------------
+    // ON COMPTE LES PASSES, PAS LES ÉLÉMENTS.
+    //
+    // Une passe peut toucher plusieurs éléments d'un coup — c'est justement
+    // ce qu'on veut, les traiter ensemble. Ce que le repos borne, c'est le
+    // NOMBRE DE FOIS où l'on relit la page : au plus une par image. Compter
+    // les éléments mélangeait les deux et donnait un chiffre qu'on ne savait
+    // pas lire.
     const repos = await page.evaluate(async () => {
         const vrai = window.poserLeContourDesFenetres;
-        let appels = 0;
-        window.poserLeContourDesFenetres = function (...a) { appels++; return vrai.apply(this, a); };
+        let quand = [];
+        window.poserLeContourDesFenetres = function (...a) { quand.push(performance.now()); return vrai.apply(this, a); };
         const d = document.createElement('div');
         d.style.cssText = 'position:fixed; left:-9999px; top:0; width:30px; height:30px;';
         document.body.appendChild(d);
         await new Promise(k => setTimeout(k, 300));
-        appels = 0;
+        quand = [];
+        const t0 = performance.now();
         for (let i = 0; i < 50; i++) {
             d.style.opacity = String(0.5 + (i % 2) * 0.1);
             await new Promise(k => setTimeout(k, 4));
         }
+        const duree = performance.now() - t0;
         await new Promise(k => setTimeout(k, 300));
         d.remove();
         window.poserLeContourDesFenetres = vrai;
-        return appels;
+        // les passes : les appels d'une même image comptent pour un
+        const passes = new Set(quand.map(t => Math.floor(t / 16))).size;
+        return { passes, appels: quand.length, images: Math.ceil(duree / 16) };
     });
     r.verifie('cinquante changements de style ne font pas cinquante relectures',
-        repos < 20, repos + ' relectures pour cinquante changements');
-    r.verifie('mais il en fait au moins une', repos >= 1, String(repos));
+        repos.passes <= repos.images + 2,
+        repos.passes + ' passes pour ' + repos.images + ' images et cinquante changements'
+        + ' (' + repos.appels + ' éléments relus)');
+    r.verifie('mais il en fait au moins une', repos.passes >= 1, JSON.stringify(repos));
 
     // ------------------------------------------------------------------
     // 3. SUR UN VRAI OUTIL, LA FENÊTRE ET SA BARRE ARRIVENT ENSEMBLE.
@@ -128,6 +141,65 @@ module.exports = async function (browser) {
     r.verifie('la fenêtre du Tableau de Proportionnalité reçoit sa barre tout de suite',
         vrai.nu !== null && vrai.nu <= 80,
         JSON.stringify(vrai) + ' — 166 ms avant la correction');
+
+    // ------------------------------------------------------------------
+    // 4. ET ON NE LA VOIT JAMAIS NUE, PAS MÊME UNE IMAGE.
+    //
+    //    C'est la vraie demande : « j'ai toujours le même effet de la fenêtre
+    //    avec le titre noir, puis après ça devient de la bonne couleur. »
+    //    Quatre-vingts millisecondes de tolérance ne la satisfont pas — une
+    //    seule image suffit à voir le bandeau noir.
+    //
+    //    LA CAUSE N'ÉTAIT NI LE VEILLEUR NI SON REPOS : toute fenêtre
+    //    attendait DEUX images avant d'être jugée, attente prévue pour celles
+    //    qu'on bâtit repliées et imposée à toutes. Mesuré au jalon : à
+    //    17,6 ms la fenêtre faisait déjà 422 × 356 et passait tous les tests ;
+    //    sa barre n'arrivait qu'à 22,4 ms.
+    //
+    //    On regarde donc à la PREMIÈRE image où la fenêtre se voit : elle doit
+    //    déjà porter sa barre.
+    const jamaisNue = await page.evaluate(async () => {
+        document.querySelectorAll('[data-equipee="1"]').forEach(f => {
+            if (!f.getClientRects().length) return;
+            const x = f.querySelector('.fen-fermer');
+            if (x) x.click(); else f.style.display = 'none';
+        });
+        await new Promise(k => setTimeout(k, 300));
+        const cible = document.getElementById('prop-builder-modal');
+        if (!cible) return { erreur: 'fenêtre absente' };
+        // ON LA REND VRAIMENT VIERGE. « equipee » ne suffit pas : la marque
+        // d'attente, elle aussi, raccourcit le chemin la fois suivante — et
+        // le contrôle mesurait alors une fenêtre déjà à moitié habillée.
+        cible.style.display = 'none';
+        delete cible.dataset.equipee;
+        delete cible.dataset.fenAttente;
+        delete cible.dataset.fenetreDefilableX;
+        delete cible.dataset.fenetreDefilableY;
+        const vieille = cible.querySelector(':scope > .fen-tete');
+        if (vieille) vieille.remove();
+        cible.classList.remove('fen-titree');
+        cible.classList.remove('contour-fenetre');
+        await new Promise(k => setTimeout(k, 300));
+
+        const b = Array.from(document.querySelectorAll('#plugins-grid .btn'))
+            .find(x => (x.dataset.pluginKey || x.title || '') === 'Tableau de Proportionnalité');
+        if (!b) return { erreur: 'bouton introuvable' };
+        b.click();
+        const images = [];
+        for (let i = 0; i < 6; i++) {
+            await new Promise(k => requestAnimationFrame(k));
+            images.push({
+                montree: getComputedStyle(cible).display !== 'none',
+                barre: !!cible.querySelector(':scope > .fen-tete')
+            });
+        }
+        // la première image où on la voit
+        const vue = images.find(x => x.montree);
+        return { images, premiereVue: vue || null };
+    });
+    r.verifie('à la première image où on la voit, elle porte déjà sa barre',
+        !!jamaisNue.premiereVue && jamaisNue.premiereVue.barre === true,
+        JSON.stringify(jamaisNue));
 
     r.verifie('aucune erreur de page', erreurs.length === 0, erreurs.join(' | '));
     await context.close();

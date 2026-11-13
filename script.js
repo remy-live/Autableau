@@ -26931,6 +26931,31 @@ function equiperFenetre(el, cle, options) {
     }
     el.dataset.fenAttente = '1';
 
+    // CELLE QUI A DÉJÀ LA TAILLE D'UNE FENÊTRE N'A RIEN À ATTENDRE.
+    //
+    // « J'ai vraiment toujours le même effet de la fenêtre avec le titre noir,
+    // et après ça devient de la bonne couleur. » Voici la vraie cause, et ce
+    // n'était ni le veilleur ni son repos : TOUTE fenêtre attendait DEUX
+    // images avant d'être jugée. L'attente est juste pour celles qu'on bâtit
+    // repliées — elles n'ont pas encore de boîte à mesurer —, mais elle était
+    // imposée à toutes. Mesuré au jalon sur le Tableau de Proportionnalité :
+    // à 17,6 ms la fenêtre mesurait déjà 422 × 356 et passait tous les tests ;
+    // sa barre n'arrivait qu'à 22,4 ms, deux images plus loin. Deux images,
+    // c'est exactement ce qu'il faut pour voir le bandeau nu puis la barre.
+    //
+    // On ne garde donc l'attente que là où elle sert : quand il n'y a encore
+    // rien à mesurer.
+    //
+    // ET « AVOIR UNE TAILLE » NE SUFFIT PAS : une largeur non nulle ne dit
+    // rien. L'attente existe pour les fenêtres posées VIDES puis remplies,
+    // qui passeraient pour un bandeau — « Mes classes » a perdu son bouton
+    // d'agrandissement à la première version de cette correction, et un
+    // chapitre a planté net. On ne saute donc l'attente que devant une
+    // fenêtre déjà grande comme une fenêtre : cent dix pixels de haut, la
+    // mesure même qui sépare un bandeau d'une fenêtre deux lignes plus bas.
+    const dejaLa = el.getBoundingClientRect();
+    if (dejaLa.width >= 150 && dejaLa.height >= 110) { juger(); return; }
+
     requestAnimationFrame(() => requestAnimationFrame(() => {
         // Certaines fenêtres sont bâties repliées et ne s'ouvrent que plus
         // tard : on attend qu'elles occupent enfin une place pour juger.
@@ -27560,6 +27585,34 @@ function equiperVraiment(el, cle, options) {
     el.insertBefore(tete, el.firstChild);
     el.classList.add('fen-titree');
     if (maison) {
+        // ET L'ON REGARDE UNE SECONDE FOIS, QUAND LE CONTENU EST ARRIVÉ.
+        //
+        // Coiffer la fenêtre sans attendre lui évite de se montrer nue — mais
+        // beaucoup d'outils posent leur bandeau avec le seul titre et lui
+        // ajoutent le reste juste après. Mesuré : le Générateur d'Exercices
+        // écrit « générateur d'exercices », on efface son bandeau puisqu'il
+        // ne disait rien de plus que la barre, et c'est « 15 questions ·
+        // 1 type » qui disparaît avec lui, arrivé une image trop tard.
+        //
+        // On ne défait rien dans le cas ordinaire : on vérifie seulement, deux
+        // images plus loin, que le bandeau caché ne s'est pas mis à dire autre
+        // chose. S'il parle, il reparaît — amputé de ce que la barre redit.
+        const quAtIlFiniParDire = () => {
+            if (!maison.el || !maison.el.isConnected) return;
+            if (!maison.el.classList.contains('fen-tete-adoptee')) return;
+            const nettoyer = (t) => String(t || '').replace(/[×✕✖⨯❌]/g, '')
+                .replace(/\s+/g, ' ').trim().toLowerCase();
+            if (nettoyer(maison.el.textContent) === nettoyer(nom)) return;
+            maison.el.classList.remove('fen-tete-adoptee');
+            maison.el.classList.add('fen-bandeau');
+            const aEffacer = maison.cestLeBandeau
+                ? envelopperLeTexteDuBandeau(maison.el)
+                : maison.titre;
+            if (aEffacer) aEffacer.classList.add('fen-repris');
+            if (maison.fermer) maison.fermer.classList.add('fen-repris');
+        };
+        requestAnimationFrame(() => requestAnimationFrame(quAtIlFiniParDire));
+
         // LE BANDEAU NE S'EFFACE ENTIER QUE S'IL NE PORTAIT QUE ÇA. Sinon on
         // n'ôte que ce que la barre redit — le titre et la croix — et ses
         // commandes restent à leur place : « Sauvegarder » et « Restaurer »
@@ -51579,12 +51632,41 @@ function surveillerLesFenetresDOutils() {
                 equiperLesModales(el);
             });
         };
+        // LE REPOS DURE UNE IMAGE, PAS CENT VINGT MILLISECONDES.
+        //
+        // « J'ai vraiment toujours le même effet de la fenêtre avec le titre
+        // noir, puis après ça devient de la bonne couleur. » Traiter le
+        // premier lot sans attendre ne suffisait pas : ouvrir un outil change
+        // des dizaines de styles AVANT de montrer sa fenêtre — quatre-vingt-dix
+        // boutons qui perdent leur « active », le mode qui bascule. Ce
+        // premier lot-là part aussitôt, le repos commence, et la fenêtre, qui
+        // s'ouvre dans le même geste, tombe DEDANS. Mesuré : elle restait nue
+        // pendant deux images, puis plus.
+        //
+        // Une image, c'est tout ce qu'il faut : le travail se fait avant que
+        // l'écran ne se redessine, donc personne ne voit jamais la fenêtre
+        // sans sa barre — et un outil qui s'anime ne fait toujours relire la
+        // page qu'une fois par image, ce qui était le but du repos.
+        // LE REPOS DURE UNE IMAGE, PAS CENT VINGT MILLISECONDES.
+        //
+        // Il existe pour qu'une animation ne fasse pas relire la page cent
+        // fois par seconde, et il le fait toujours : au plus une passe par
+        // image. Mais cent vingt millisecondes, c'est sept images — assez pour
+        // qu'une fenêtre qui s'ouvre pendant ce repos se montre toute nue
+        // avant de recevoir sa barre. Une image suffit à tenir les animations,
+        // et le travail d'une image se fait AVANT que l'écran ne se redessine.
+        //
+        // (J'avais aussi écrit une règle pour qu'une fenêtre naissante passe
+        // devant la file. Sabotée, elle ne changeait rien — ni sur ce
+        // chapitre, ni sur les quatre-vingt-neuf outils mesurés un par un.
+        // Elle est partie : du code que rien ne mesure est du code que
+        // personne ne saura corriger.)
         if (attente) return;
         traiter();
-        attente = setTimeout(() => {
+        attente = requestAnimationFrame(() => {
             attente = null;
             if (aVoir.size) traiter();
-        }, 120);
+        });
     });
     oeil.observe(document.body, { attributes: true, subtree: true,
                                   attributeFilter: ['style', 'class', 'hidden', 'open'] });
