@@ -33,8 +33,12 @@ const ATTENDU = [
 // Ceux-là servent à la mesure des débordements et des aperçus : on en veut un
 // très large (l'axe, 400 × 48), un très haut (le thermomètre, 80 × 250) et
 // plusieurs qui portent des rangées de couleurs.
+// Les trois derniers portent une taille écrite en dur dans leur dessin —
+// 300 × 300 pour l'octogone, 352 × 200 pour trois dominos — et ce sont eux
+// qu'on a vus tronqués.
 const POUR_LE_RESTE = ['Axe Mathématique', 'Thermomètre', 'Repère Cartésien',
-    'Symétrie', 'Grille Boggle', 'Tableau de Numération'];
+    'Symétrie', 'Grille Boggle', 'Tableau de Numération',
+    'Polygones Réguliers', 'Générateur de Dominos', 'Jeu du Pendu'];
 
 module.exports = async function (browser) {
     const r = creerRapport('La boîte suit ses réglages');
@@ -89,12 +93,25 @@ module.exports = async function (browser) {
             const img = apercu.querySelector('img');
             if (img && img.naturalWidth > 0) rapport = img.naturalWidth / img.naturalHeight;
         }
+        // ET CE QUI SORT DE LA BOÎTE D'APERÇU. « C'est tronqué. » Les dessins
+        // portent une taille écrite en dur — l'octogone fait 300 × 300 — et
+        // depuis que la boîte prend la hauteur que la forme commande, un
+        // dessin trop grand s'y faisait couper le haut et le bas.
+        const dessin = apercu.querySelector('svg, img');
+        let sortDeLaBoite = 0;
+        if (dessin) {
+            const rd = dessin.getBoundingClientRect();
+            sortDeLaBoite = Math.max(0, Math.round(ra.top - rd.top))
+                + Math.max(0, Math.round(rd.bottom - ra.bottom))
+                + Math.max(0, Math.round(ra.left - rd.left))
+                + Math.max(0, Math.round(rd.right - ra.right));
+        }
         return {
             boite: [Math.round(rb.width), Math.round(rb.height)],
             colonnes: getComputedStyle(champs).gridTemplateColumns.split(/\s+/).filter(Boolean).length,
             hReglages: Math.round(rc.height),
             apercu: [Math.round(ra.width), Math.round(ra.height)],
-            rapport, debordent
+            rapport, debordent, sortDeLaBoite
         };
     });
 
@@ -134,10 +151,15 @@ module.exports = async function (browser) {
         await refermer();
         await page.waitForTimeout(200);
     }
-    r.egal('les six boîtes se sont bien ouvertes', releve.length, POUR_LE_RESTE.length,
+    r.egal('les neuf boîtes se sont bien ouvertes', releve.length, POUR_LE_RESTE.length,
         releve.map(x => x.nom).join(', '));
     const quiDeborde = releve.filter(x => x.m.debordent > 0).map(x => x.nom + ':' + x.m.debordent);
     r.egal('rien ne déborde de sa case', quiDeborde.length, 0, quiDeborde.join(', '));
+
+    // ET AUCUN DESSIN N'EST ROGNÉ PAR SA BOÎTE D'APERÇU.
+    const rognes = releve.filter(x => x.m.sortDeLaBoite > 2)
+        .map(x => x.nom + ' : ' + x.m.sortDeLaBoite + ' px hors de ' + x.m.apercu.join('×'));
+    r.egal('aucun aperçu n\'est rogné par sa boîte', rognes.length, 0, rognes.join(' | '));
 
     // ------------------------------------------------------------------
     // 3. L'APERÇU PREND LA FORME DE CE QU'IL DESSINE.

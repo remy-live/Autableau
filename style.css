@@ -4847,6 +4847,17 @@ body.dark-mode {
     transition: border-color 0.15s ease, background 0.15s ease, color 0.15s ease;
 }
 
+/* ET SON LIBELLÉ SE REPLIE DANS SA CASE.
+   « Remplir les cases intermédiaires » fait quatre-vingt-dix pixels de large
+   dans une colonne de quatre-vingt-neuf, à côté d'un carré de dix-sept : il
+   sortait de trente-huit. Un enfant de boîte flexible ne rétrécit jamais
+   au-dessous de son contenu tant qu'on ne le lui permet pas. */
+.prompt-case > span {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow-wrap: anywhere;
+}
+
 .prompt-case:hover {
     border-color: #b9b0f5;
     background: rgba(108, 92, 231, 0.06);
@@ -7343,7 +7354,8 @@ body.libelles-couleur #plugins-grid .btn[data-category="Détente"] { background:
     padding: 8px 8px 4px;
 }
 
-.reglages-popup .rp-choix {
+.reglages-popup .rp-choix,
+#apparence-fenetres .rp-choix {
     display: block;
     width: 100%;
     text-align: left;
@@ -7357,14 +7369,17 @@ body.libelles-couleur #plugins-grid .btn[data-category="Détente"] { background:
     cursor: pointer;
 }
 
-.reglages-popup .rp-choix:hover { background: rgba(108, 92, 231, 0.10); }
+.reglages-popup .rp-choix:hover,
+#apparence-fenetres .rp-choix:hover { background: rgba(108, 92, 231, 0.10); }
 
-.reglages-popup .rp-choix.actif {
+.reglages-popup .rp-choix.actif,
+#apparence-fenetres .rp-choix.actif {
     background: rgba(108, 92, 231, 0.14);
     color: #6c5ce7;
 }
 
-.reglages-popup .rp-choix.actif::after { content: ' ✓'; }
+.reglages-popup .rp-choix.actif::after,
+#apparence-fenetres .rp-choix.actif::after { content: ' ✓'; }
 
 /* ==========================================================================
    UNE RANGÉE DE CASES, PLUTÔT QU'UNE LIGNE PAR VALEUR
@@ -9676,8 +9691,8 @@ body.focus-mode #edt-bandeau { display: none; }
     align-items: center;
     gap: 8px;
     padding: 0 6px 0 8px;
-    background: #f1f2f6;
-    border-bottom: 1px solid #dfe6e9;
+    background: var(--f-tete);
+    border-bottom: 1px solid var(--f-trait);
     border-radius: inherit;
     border-bottom-left-radius: 0;
     border-bottom-right-radius: 0;
@@ -9688,6 +9703,201 @@ body.focus-mode #edt-bandeau { display: none; }
 }
 
 .fen-tete.en-main { cursor: grabbing; }
+
+/* UN APERÇU NE DÉBORDE PAS DE SA BOÎTE.
+   « C'est tronqué. » — le Polygone, les Dominos.
+
+   Les dessins portent une taille écrite en dur : l'octogone fait
+   « width="300" height="300" », la rangée de trois dominos 352 × 200. Tant
+   que la boîte d'aperçu mesurait 140 pixels pour tout le monde, le dessin y
+   flottait au milieu, trop petit mais entier. Depuis qu'elle prend la hauteur
+   que la FORME commande — 150 pixels pour un carré dans une boîte large —, un
+   dessin de 300 de haut n'y entre plus, et la boîte, qui coupe ce qui
+   dépasse, lui mangeait le haut et le bas.
+
+   Deux bornes suffisent, et elles ne touchent pas au rapport : un dessin trop
+   grand rapetisse, un dessin à la bonne taille ne bouge pas. On vise par le
+   DÉBUT de l'identifiant, car une fenêtre épinglée change de nom. */
+[id^="custom-prompt-preview"] > *,
+[id^="custom-prompt-preview"] svg,
+[id^="custom-prompt-preview"] img {
+    /* « IMPORTANT » EST ICI UNE BORNE, PAS UN COUP DE FORCE.
+       Les dessins disent leur taille en ligne — le Tableau de numération
+       écrit « max-height:150px » sur son image, et un style en ligne passe
+       devant une feuille de style. Mesuré : 150 pixels d'image dans une boîte
+       de 114, soit dix-huit rognés en haut et dix-huit en bas. Aucun dessin
+       ne peut savoir la hauteur de la boîte où il atterrira : elle dépend de
+       l'outil, de l'écran, et de la hauteur des réglages. C'est donc la boîte
+       qui tranche, et elle ne tranche que dans un sens — elle rapetisse ce
+       qui dépasse, elle n'agrandit rien.
+       La « border-box » va avec : une enveloppe en « height:100% » avec huit
+       pixels de marge intérieure déborde de seize sans elle. */
+    max-width: 100% !important;
+    max-height: 100% !important;
+    box-sizing: border-box !important;
+}
+
+/* ------- la fenêtre « Apparence des fenêtres » ------- */
+.af-rubrique {
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: #636e72;
+    margin: 4px 0 8px;
+}
+
+.af-rubrique + .af-rubrique,
+.af-themes + .af-rubrique { margin-top: 16px; }
+
+#apparence-fenetres .af-rubrique:not(:first-child) {
+    border-top: 1px solid rgba(127, 127, 127, 0.22);
+    padding-top: 14px;
+    margin-top: 16px;
+}
+
+.af-mot {
+    margin: -2px 0 10px;
+    font-size: 12px;
+    line-height: 1.45;
+    color: #636e72;
+}
+
+/* LES THÈMES SE CHOISISSENT EN LES VOYANT, PAS EN LISANT LEUR NOM.
+   Chaque bouton porte une barre de titre en miniature, peinte avec les
+   jetons du thème : c'est très exactement ce qu'on va obtenir. Un nom seul
+   — « Ardoise », « École » — ne dit rien à qui ne les a jamais vus. */
+.af-themes {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    gap: 10px;
+}
+
+.af-theme {
+    display: flex;
+    flex-direction: column;
+    gap: 7px;
+    padding: 8px;
+    border: 1px solid var(--border, #dfe6e9);
+    border-radius: 9px;
+    background: transparent;
+    cursor: pointer;
+    text-align: left;
+    font: inherit;
+}
+
+.af-theme:hover { background: rgba(108, 92, 231, 0.08); }
+
+.af-theme[aria-pressed="true"] {
+    border-color: #6c5ce7;
+    box-shadow: 0 0 0 2px rgba(108, 92, 231, 0.28);
+}
+
+.af-theme .af-vue {
+    border-radius: 6px;
+    overflow: hidden;
+    border: 1px solid rgba(0, 0, 0, 0.14);
+}
+
+.af-theme .af-barre {
+    height: 18px;
+    display: flex;
+    align-items: center;
+    padding: 0 6px;
+    font-size: 9px;
+    font-weight: 700;
+}
+
+.af-theme .af-corps { height: 26px; }
+
+.af-theme .af-nom {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--ink, #2d3436);
+}
+
+.dark-mode .af-rubrique,
+.dark-mode .af-mot { color: #b2bec3; }
+
+.dark-mode #apparence-fenetres { background: #222a33 !important; }
+
+.dark-mode .af-theme .af-nom { color: #dfe6e9; }
+
+/* ==================================================================
+   LE THÈME DES FENÊTRES, EN HUIT JETONS
+
+   « Permets justement plusieurs thèmes. »
+
+   Huit valeurs, et toutes les barres de titre changent d'habit en même
+   temps — celles des quarante fenêtres d'outils comme celle de la boîte
+   commune des réglages. Changer de thème, c'est remplacer huit valeurs ;
+   ce n'est pas relire une feuille de style.
+
+   LE DÉFAUT N'EST PAS UN THÈME, C'EST « COMME AVANT ». Qui ne choisit rien
+   garde exactement le dessin d'aujourd'hui, clair ou sombre selon le
+   tableau. Un thème ne s'applique que si on l'a demandé : refaire
+   l'apparence de l'application au nom de quelqu'un qui n'a rien dit serait
+   le pire des services.
+
+   CE QUE LE THÈME N'ATTEINT PAS, ET POURQUOI. Quarante-sept fenêtres
+   peignent leur propre fond, écrit dans leur code. Le thème habille ce que
+   le système de fenêtres possède : la barre de titre et la boîte commune.
+   Le reste suivra quand ces fenêtres passeront par le même système. */
+:root {
+    --f-tete: #f1f2f6;
+    --f-encre: #2d3436;
+    --f-trait: #dfe6e9;
+    --f-fond: #ffffff;
+    --f-pale: #6b7680;
+}
+
+body.dark-mode {
+    --f-tete: #2f3640;
+    --f-encre: #dfe6e9;
+    --f-trait: #3d4852;
+    --f-fond: #222a33;
+    --f-pale: #9aa6b2;
+}
+
+body[data-theme-fenetre="papier"] {
+    --f-tete: #f7f1e6;
+    --f-encre: #33302a;
+    --f-trait: #e6ded0;
+    --f-fond: #fdfaf4;
+    --f-pale: #7d7668;
+}
+
+body[data-theme-fenetre="ardoise"] {
+    --f-tete: #232930;
+    --f-encre: #eef1f3;
+    --f-trait: #3d454c;
+    --f-fond: #2b3137;
+    --f-pale: #a6b0b8;
+}
+
+body[data-theme-fenetre="nuit"] {
+    --f-tete: #1b1f24;
+    --f-encre: #e6e9ec;
+    --f-trait: #262b31;
+    --f-fond: #14161a;
+    --f-pale: #8b949d;
+}
+
+body[data-theme-fenetre="ecole"] {
+    --f-tete: #eef6fc;
+    --f-encre: #1c3d5a;
+    --f-trait: #d6e4ef;
+    --f-fond: #ffffff;
+    --f-pale: #4a6c86;
+}
+
+body[data-theme-fenetre="contraste"] {
+    --f-tete: #ffffff;
+    --f-encre: #000000;
+    --f-trait: #000000;
+    --f-fond: #ffffff;
+    --f-pale: #2b2b2b;
+}
 
 /* ==================================================================
    LA BOÎTE COMMUNE PORTE LA MÊME BARRE QUE TOUTES LES FENÊTRES
@@ -9709,16 +9919,10 @@ body.focus-mode #edt-bandeau { display: none; }
 .drag-handle-prompt {
     height: 34px !important;
     padding: 0 6px 0 8px !important;
-    background: #f1f2f6 !important;
-    color: #2d3436 !important;
-    border-bottom: 1px solid #dfe6e9 !important;
+    background: var(--f-tete) !important;
+    color: var(--f-encre) !important;
+    border-bottom: 1px solid var(--f-trait) !important;
     font-size: 14px !important;
-}
-
-.dark-mode .drag-handle-prompt {
-    background: #2f3640 !important;
-    color: #dfe6e9 !important;
-    border-bottom-color: #3d4852 !important;
 }
 
 /* La place que la barre occupe est rendue au contenu. Les fenêtres posent leur
@@ -9734,7 +9938,7 @@ body.focus-mode #edt-bandeau { display: none; }
     text-align: left;
     font-size: 14px;
     font-weight: 700;
-    color: #2d3436;
+    color: var(--f-encre);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -9786,7 +9990,7 @@ body.focus-mode #edt-bandeau { display: none; }
     border: none;
     border-radius: 7px;
     background: transparent;
-    color: #6b7680;
+    color: var(--f-pale);
     line-height: 1;
     cursor: pointer;
     opacity: 1;
@@ -9800,7 +10004,9 @@ body.focus-mode #edt-bandeau { display: none; }
 
 .fen-tete .fen-plein { flex: none; }
 
-.dark-mode .fen-tete { background: #2f3640; border-bottom-color: #3d4852; }
+/* (le mode sombre passe désormais par les jetons « --f-* », en haut de ce
+   fichier : une seule définition pour la barre commune et pour la boîte des
+   réglages, au lieu de deux qui se répondaient de loin.) */
 .dark-mode .fen-nom { color: #dfe6e9; }
 /* LE ROUGE DU JOUR NE SE LIT PAS LA NUIT : #d63031 sur le bandeau sombre
    #2f3640 donne 1,79:1, autant dire rien. Le rouge clair de l'application y
@@ -11434,7 +11640,17 @@ body.en-lecture #board { outline: 3px solid rgba(108, 92, 231, 0.55); outline-of
     white-space: nowrap;
 }
 
-.reglages-popup .rp-trait {
+/* « rp-trait » ÉTAIT DÉJÀ PRIS. Ce menu s'en sert depuis longtemps pour le
+   trait du quadrillage — un rectangle de 26 pixels peint à l'encre. Deux
+   classes du même nom dans le même menu : la seconde écrasait la première
+   par le seul fait d'être écrite plus bas, et rien ne l'aurait dit. L'épaisseur
+   du contour a donc son nom à elle.
+
+   ET CES RÉGLAGES VIVENT DANS DEUX ENDROITS depuis qu'ils ont déménagé : le
+   menu « ⋯ » du tiroir, et la fenêtre de l'apparence. Un style écrit pour le
+   seul menu les laissait nus dans la fenêtre. */
+.reglages-popup .rp-epaisseur,
+#apparence-fenetres .rp-epaisseur {
     display: flex;
     align-items: center;
     gap: 3px;
@@ -11442,7 +11658,8 @@ body.en-lecture #board { outline: 3px solid rgba(108, 92, 231, 0.55); outline-of
     padding-right: 4px;
 }
 
-.reglages-popup .rp-trait-choix {
+.reglages-popup .rp-epaisseur-choix,
+#apparence-fenetres .rp-epaisseur-choix {
     flex: 0 0 auto;
     width: 22px;
     height: 22px;
@@ -11457,9 +11674,11 @@ body.en-lecture #board { outline: 3px solid rgba(108, 92, 231, 0.55); outline-of
     cursor: pointer;
 }
 
-.reglages-popup .rp-trait-choix:hover { background: rgba(108, 92, 231, 0.10); }
+.reglages-popup .rp-epaisseur-choix:hover,
+#apparence-fenetres .rp-epaisseur-choix:hover { background: rgba(108, 92, 231, 0.10); }
 
-.reglages-popup .rp-trait-choix.actif {
+.reglages-popup .rp-epaisseur-choix.actif,
+#apparence-fenetres .rp-epaisseur-choix.actif {
     background: #6c5ce7;
     border-color: #6c5ce7;
     color: #ffffff;

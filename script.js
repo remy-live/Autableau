@@ -27376,6 +27376,19 @@ function premierDessin(el, saBarre) {
 }
 
 function enTeteMaison(el, saBarre) {
+    // UNE FENÊTRE QUI DIT SON TITRE N'A PAS DE BANDEAU À REPRENDRE.
+    //
+    // Chercher un en-tête maison est une DEVINETTE : on regarde le premier
+    // dessin de la fenêtre et l'on juge, à sa hauteur et à sa largeur, s'il
+    // ressemble à un bandeau. C'est ce qu'il faut pour les quarante-sept
+    // fenêtres écrites avant ce mécanisme, qui n'ont rien déclaré.
+    //
+    // Mais quand l'auteur a écrit « data-fenetre-titre », il a répondu : le
+    // titre est celui-là, et tout le reste est du contenu. Deviner par-dessus
+    // ne peut que se tromper — et cela s'est vu tout de suite : la fenêtre de
+    // l'apparence commence par l'intertitre « Le trait des fenêtres », qui fut
+    // pris pour son bandeau et aussitôt caché. Un intertitre invisible, et la
+    // première rubrique sans nom.
     let premier = premierDessin(el, saBarre);
     if (!premier) return null;
     // CERTAINES FENÊTRES ENVELOPPENT TOUT DANS UN CADRE. « Cartes à jouer »,
@@ -27399,6 +27412,23 @@ function enTeteMaison(el, saBarre) {
     const fermer = croixDuBandeau(premier);
     const titre = titreDuBandeau(premier, fermer);
     if (!titre && !fermer) return null;                  // rien à reprendre : ce n'est pas un en-tête
+    // UNE FENÊTRE QUI DIT SON TITRE N'A PAS D'EN-TÊTE À DEVINER — sauf si ce
+    // qu'on a trouvé porte une CROIX.
+    //
+    // Chercher un en-tête maison est une devinette : on regarde le premier
+    // dessin de la fenêtre et l'on juge, à sa taille, s'il ressemble à un
+    // bandeau. Il le faut bien pour les quarante-sept fenêtres écrites avant
+    // ce mécanisme, qui n'ont rien déclaré. Mais la fenêtre de l'apparence
+    // commence par l'intertitre « Le trait des fenêtres » : un texte, large,
+    // court — et il fut pris pour son bandeau, donc aussitôt caché.
+    //
+    // Quand l'auteur a écrit « data-fenetre-titre », il a répondu : le titre
+    // est celui-là. On ne devine donc plus… à une exception près, mesurée
+    // tout de suite : « Algorithmes (Scratch) » déclare son titre ET porte un
+    // vrai bandeau avec sa croix. Ne plus l'adopter lui laissait DEUX CROIX
+    // pour fermer. Une croix, ça ne se devine pas : c'est la marque d'un
+    // bandeau, et elle tranche.
+    if (el && el.dataset && el.dataset.fenetreTitre && !fermer) return null;
     // CE QUI RESTE quand on a repris le titre et la croix. S'il ne reste rien,
     // le bandeau n'a plus de raison de paraître.
     const reste = [...premier.querySelectorAll('button, .close, [role="button"]')]
@@ -28618,12 +28648,27 @@ function formeDeLApercu(boite) {
     return null;
 }
 
-const APERCU_HAUTEUR_PAR_DEFAUT = 140;
+// LA BORNE D'UN APERÇU COMPOSÉ. Elle ne vient pas de la hauteur des réglages
+// — un outil à un seul réglage aurait droit à soixante pixels, et l'on y
+// couperait son bouton — mais de ce qu'une fenêtre peut consacrer à son
+// aperçu sans sortir d'un vidéoprojecteur : mesuré, le plus haut des aperçus
+// composés demande 281 pixels.
+const APERCU_PLAFOND_COMPOSE = 340;
 
 function ajusterLaHauteurDeLApercu(boite, reglages) {
     if (!boite || !boite.isConnected) return;
     if (getComputedStyle(boite).display === 'none') return;
-    const rapport = formeDeLApercu(boite);
+
+    // UN APERÇU COMPOSÉ SE MESURE, IL NE SE CALCULE PAS.
+    //
+    // « C'est tronqué » — la Grille de Boggle. Son aperçu n'est pas un dessin
+    // seul : c'est une image ET un bouton « Remélanger ». Lui donner la
+    // hauteur que commande le rapport de son image, c'était couper le bouton.
+    // Un rapport largeur sur hauteur ne décrit qu'un dessin ; dès qu'il y a
+    // une commande dans l'aperçu, c'est le CONTENU qui sait de quelle hauteur
+    // il a besoin, et nous qui posons une borne.
+    const compose = !!boite.querySelector('button, input, select, textarea');
+    const rapport = compose ? null : formeDeLApercu(boite);
     if (!rapport) {
         // UNE IMAGE QUI N'EST PAS ENCORE LÀ N'EST PAS UNE IMAGE SANS FORME :
         // on se donne rendez-vous à son arrivée, une seule fois.
@@ -28632,9 +28677,11 @@ function ajusterLaHauteurDeLApercu(boite, reglages) {
             img.dataset.formeGuettee = '1';
             img.addEventListener('load', () => ajusterLaHauteurDeLApercu(boite, reglages), { once: true });
         }
-        boite.style.height = APERCU_HAUTEUR_PAR_DEFAUT + 'px';
+        boite.style.height = 'auto';
+        boite.style.maxHeight = APERCU_PLAFOND_COMPOSE + 'px';
         return;
     }
+    boite.style.maxHeight = '';
     const largeur = boite.clientWidth || boite.getBoundingClientRect().width;
     if (!largeur) return;
     // ET L'APERÇU NE DÉPASSE JAMAIS LA HAUTEUR DES RÉGLAGES. Sans cette
@@ -28643,9 +28690,24 @@ function ajusterLaHauteurDeLApercu(boite, reglages) {
     // haut que l'écran d'un vidéoprojecteur de classe.
     const hReglages = reglages && reglages.isConnected
         ? Math.round(reglages.getBoundingClientRect().height) : 0;
-    const plafond = Math.max(110, Math.min(hReglages || APERCU_HAUTEUR_PAR_DEFAUT, 320));
+    // Si les réglages ne se mesurent pas encore — la boîte vient de naître —,
+    // on prend la hauteur qu'avait l'aperçu avant qu'elle ne suive sa forme.
+    const plafond = Math.max(110, Math.min(hReglages || 140, 320));
     const voulue = Math.round(largeur / rapport);
     boite.style.height = Math.max(70, Math.min(voulue, plafond)) + 'px';
+}
+
+function ajusterLesRangeesDeCouleur(container, colonnes, ecart) {
+    if (!container || !container.isConnected) return;
+    const rangees = container.querySelectorAll('[data-rangee-couleur]');
+    if (!rangees.length) return;
+    const dispo = container.clientWidth;
+    if (!dispo) return;
+    const laColonne = (dispo - (colonnes - 1) * ecart) / colonnes;
+    const besoin = 7 * 26 + 6 * 10 + 8;      // sept ronds, six écarts, un peu d'air
+    let n = 1;
+    while (n < colonnes && (n * laColonne + (n - 1) * ecart) < besoin) n++;
+    rangees.forEach(w => { w.style.gridColumn = n > 1 ? 'span ' + n : ''; });
 }
 
 function openCustomPrompt(title, fields, onChange, onValidate, onCancel) {
@@ -28898,8 +28960,15 @@ function openCustomPrompt(title, fields, onChange, onValidate, onCancel) {
                 colorWrap.style.flexWrap = 'wrap';
                 colorWrap.style.maxWidth = '100%';
             }
+            // ET ELLE SE REPLIE PLUTÔT QUE DE DÉBORDER. Quand la colonne est
+            // vraiment trop étroite — l'arbre de calcul range ses réglages
+            // dans trois colonnes de 89 pixels —, sept ronds de 26 n'entrent
+            // nulle part. Une seconde ligne coûte vingt-six pixels ; déborder
+            // coûte une pastille qu'on ne peut plus cliquer.
+            colorWrap.style.flexWrap = 'wrap';
             colorWrap.appendChild(wheelBtn); colorWrap.appendChild(inp);
             renderSwatches();
+            wrap.dataset.rangeeCouleur = '1';
             wrap.appendChild(lbl); wrap.appendChild(colorWrap);
             container.appendChild(wrap); inputElements.push(inp);
             return;
@@ -28980,6 +29049,16 @@ function openCustomPrompt(title, fields, onChange, onValidate, onCancel) {
 
     promptModal.style.display = 'flex';
     if (inputElements.length > 0 && inputElements[0].focus) inputElements[0].focus();
+    // ET LA PLACE DES COULEURS SE MESURE, ELLE NE SE SUPPOSE PAS.
+    //
+    // Le calcul d'avant partait d'une colonne de 150 pixels — la largeur que
+    // la boîte se donne elle-même. Mais tous les outils ne la laissent pas
+    // faire : l'arbre de calcul range ses huit réglages dans trois colonnes
+    // de QUATRE-VINGT-NEUF pixels, et deux colonnes n'y font que 195 là où
+    // sept pastilles en demandent 250. Elles débordaient. On attend donc que
+    // la boîte soit ouverte, on lit la vraie largeur, et l'on donne aux
+    // rangées de couleur le nombre de colonnes qu'il leur faut pour de bon.
+    requestAnimationFrame(() => ajusterLesRangeesDeCouleur(container, colonnes, ECART_X));
 
     if (onChange && typeof onChange === 'function') {
         // Appelle la fonction onChange pour dessiner l'aperçu au chargement
@@ -51057,7 +51136,7 @@ function majReglagesBarre() {
     if (bContours) bContours.classList.toggle('actif', !contoursDoux);
     // L'épaisseur en cours se lit sans survoler : le panneau s'ouvre devant
     // une classe, pas devant une souris patiente.
-    document.querySelectorAll('#rp-trait .rp-trait-choix').forEach(b => {
+    document.querySelectorAll('#rp-epaisseur .rp-epaisseur-choix').forEach(b => {
         b.classList.toggle('actif', parseInt(b.dataset.trait, 10) === epaisseurDuContour);
         b.setAttribute('aria-pressed', parseInt(b.dataset.trait, 10) === epaisseurDuContour ? 'true' : 'false');
     });
@@ -51101,6 +51180,123 @@ function poserLesContours() {
     document.body.classList.toggle('contours-doux', contoursDoux);
     document.documentElement.style.setProperty('--contour-trait', epaisseurDuContour + 'px');
 }
+
+// ==================================================================
+// LE THÈME DES FENÊTRES
+// ==================================================================
+// « Permets justement plusieurs thèmes. »
+//
+// Six habits, huit jetons chacun, et toutes les barres de titre changent en
+// même temps — celles des quarante fenêtres d'outils comme celle de la boîte
+// commune des réglages.
+//
+// LE DÉFAUT N'EST PAS UN THÈME, C'EST « COMME AVANT ». Qui ne choisit rien
+// garde exactement le dessin d'aujourd'hui, clair ou sombre selon le tableau.
+// Refaire l'apparence de l'application au nom de quelqu'un qui n'a rien
+// demandé serait le pire des services — et c'est pour cela que « auto » n'est
+// pas un septième habit, mais l'absence d'habit : on retire l'attribut, et la
+// feuille de style reprend la main.
+const CLE_THEME_FENETRE = 'auTableau_theme_fenetre';
+const THEMES_DE_FENETRE = [
+    { id: 'auto', nom: 'Comme le tableau', dit: 'clair ou sombre, selon le tableau' },
+    { id: 'papier', nom: 'Papier', dit: 'un blanc cassé, chaud' },
+    { id: 'ecole', nom: 'École', dit: 'le bleu des cahiers' },
+    { id: 'ardoise', nom: 'Ardoise', dit: 'sombre, sans être noir' },
+    { id: 'nuit', nom: 'Nuit', dit: 'pour une salle plongée dans le noir' },
+    { id: 'contraste', nom: 'Fort contraste', dit: 'quand le vidéoprojecteur délave tout' }
+];
+let themeDesFenetres = 'auto';
+try {
+    const t = localStorage.getItem(CLE_THEME_FENETRE);
+    if (t && THEMES_DE_FENETRE.some(x => x.id === t)) themeDesFenetres = t;
+} catch (e) { /* stockage refusé */ }
+
+function poserLeThemeDesFenetres() {
+    if (themeDesFenetres === 'auto') document.body.removeAttribute('data-theme-fenetre');
+    else document.body.setAttribute('data-theme-fenetre', themeDesFenetres);
+}
+
+function choisirLeThemeDesFenetres(id) {
+    if (!THEMES_DE_FENETRE.some(x => x.id === id)) return themeDesFenetres;
+    themeDesFenetres = id;
+    try { localStorage.setItem(CLE_THEME_FENETRE, id); } catch (e) { /* refusé */ }
+    poserLeThemeDesFenetres();
+    majLesThemesDeFenetre();
+    return themeDesFenetres;
+}
+window.choisirLeThemeDesFenetres = choisirLeThemeDesFenetres;
+
+// LES THÈMES SE CHOISISSENT EN LES VOYANT. Chaque bouton porte une barre de
+// titre en miniature, peinte avec les jetons de son thème : c'est très
+// exactement ce qu'on va obtenir. « Ardoise » ou « École » ne disent rien à
+// qui ne les a jamais vus.
+function majLesThemesDeFenetre() {
+    const bac = document.getElementById('af-themes');
+    if (!bac) return;
+    if (!bac.dataset.remplie) {
+        bac.dataset.remplie = '1';
+        bac.innerHTML = THEMES_DE_FENETRE.map(t =>
+            `<button type="button" class="af-theme" data-theme="${t.id}" title="${echapperTexte(t.dit)}">`
+            + `<span class="af-vue" data-vue="${t.id}">`
+            + `<span class="af-barre">Fenêtre</span><span class="af-corps" style="display:block"></span>`
+            + `</span><span class="af-nom">${echapperTexte(t.nom)}</span></button>`).join('');
+        bac.querySelectorAll('.af-theme').forEach(b => {
+            b.addEventListener('click', () => choisirLeThemeDesFenetres(b.dataset.theme));
+        });
+        peindreLesVignettesDeTheme();
+    }
+    bac.querySelectorAll('.af-theme').forEach(b => {
+        b.setAttribute('aria-pressed', b.dataset.theme === themeDesFenetres ? 'true' : 'false');
+    });
+}
+
+// ON NE RECOPIE PAS LES COULEURS DANS LE CODE : on les LIT là où elles sont
+// écrites, en posant l'attribut du thème sur un élément de mesure. Recopiées,
+// elles mentiraient le jour où la feuille de style change — et personne ne
+// s'en apercevrait, puisque la vignette ressemblerait toujours à quelque chose.
+function peindreLesVignettesDeTheme() {
+    // ON MESURE SUR LE CORPS DE LA PAGE, ET PAS AILLEURS.
+    //
+    // Les thèmes sont écrits « body[data-theme-fenetre="…"] » : posé sur un
+    // élément de mesure caché, l'attribut ne déclenchait aucune règle, et les
+    // six vignettes sortaient toutes de la même couleur — celle d'aujourd'hui.
+    // On habille donc le corps lui-même, on lit, et on le rend comme on l'a
+    // trouvé. Tout cela dans la même tâche : la page ne se redessine qu'à la
+    // fin, personne ne voit passer les cinq autres thèmes.
+    const corps = document.body;
+    const avant = corps.getAttribute('data-theme-fenetre');
+    THEMES_DE_FENETRE.forEach(t => {
+        const vue = document.querySelector(`.af-vue[data-vue="${t.id}"]`);
+        if (!vue) return;
+        if (t.id === 'auto') corps.removeAttribute('data-theme-fenetre');
+        else corps.setAttribute('data-theme-fenetre', t.id);
+        const c = getComputedStyle(corps);
+        const jeton = (n) => c.getPropertyValue(n).trim() || '';
+        const barre = vue.querySelector('.af-barre');
+        if (barre) {
+            barre.style.background = jeton('--f-tete');
+            barre.style.color = jeton('--f-encre');
+            barre.style.borderBottom = '1px solid ' + jeton('--f-trait');
+        }
+        const dedans = vue.querySelector('.af-corps');
+        if (dedans) dedans.style.background = jeton('--f-fond');
+    });
+    if (avant === null) corps.removeAttribute('data-theme-fenetre');
+    else corps.setAttribute('data-theme-fenetre', avant);
+}
+
+function ouvrirLApparenceDesFenetres() {
+    const f = document.getElementById('apparence-fenetres');
+    if (!f) return;
+    majLesThemesDeFenetre();
+    f.style.display = 'block';
+    // La fenêtre se range dans l'empilement commun, comme les autres : elle a
+    // la forme d'une fenêtre, le système la reconnaît et l'équipe lui-même.
+    if (typeof equiperLesModales === 'function') equiperLesModales(f);
+    if (typeof poserLeContourDesFenetres === 'function') poserLeContourDesFenetres(f);
+    if (typeof majReglagesBarre === 'function') majReglagesBarre();
+}
+window.ouvrirLApparenceDesFenetres = ouvrirLApparenceDesFenetres;
 
 function choisirLEpaisseurDuContour(n) {
     const v = parseInt(n, 10);
@@ -51300,9 +51496,24 @@ function surveillerLesFenetresDOutils() {
                 && (c.classList.contains('contour-fenetre') || c.classList.contains('fen-titree'))) return;
             aVoir.add(c);
         });
-        if (attente) return;
-        attente = setTimeout(() => {
-            attente = null;
+        // ON AGIT TOUT DE SUITE, PUIS ON SE REPOSE — ET NON L'INVERSE.
+        //
+        // « Quand on ouvre une fenêtre, la barre de titre se met en noir, puis
+        // après ça devient ce qu'on a modifié, comme s'il y avait la vieille
+        // fenêtre puis la nouvelle. » C'est exactement cela : la fenêtre
+        // s'affiche avec SON bandeau, et la barre commune n'arrive qu'après.
+        //
+        // Mesuré sur les quatre-vingt-neuf outils : DIX fenêtres montraient
+        // leur bandeau de 46 à 212 millisecondes avant de recevoir la barre —
+        // Évolutions Successives 212, Pixel Studio 202, le Tableau de
+        // Proportionnalité 166. À l'œil, c'est un battement.
+        //
+        // La cause tenait en un mot : l'attente était posée AVANT le travail.
+        // Elle existe pour une bonne raison — une animation ferait relire la
+        // page cent fois par seconde — mais rien n'obligeait à faire attendre
+        // le PREMIER. On traite donc le premier lot sans délai, et l'on garde
+        // le repos pour ceux qui suivent dans les cent vingt millisecondes.
+        const traiter = () => {
             const lot = [...aVoir];
             aVoir.clear();
             lot.forEach(el => {
@@ -51313,6 +51524,12 @@ function surveillerLesFenetresDOutils() {
                 // pourtant l'instant où elle a enfin une taille à mesurer.
                 equiperLesModales(el);
             });
+        };
+        if (attente) return;
+        traiter();
+        attente = setTimeout(() => {
+            attente = null;
+            if (aVoir.size) traiter();
         }, 120);
     });
     oeil.observe(document.body, { attributes: true, subtree: true,
@@ -51481,12 +51698,16 @@ document.addEventListener('DOMContentLoaded', () => {
     if (rendre) rendre.addEventListener('click', (e) => { e.stopPropagation(); reglerLaCouleurDuContour(null); });
     // Les trois crans d'épaisseur. « stopPropagation » parce qu'un clic dans
     // le panneau d'apparence le referme — et l'on veut comparer les trois.
-    document.querySelectorAll('#rp-trait .rp-trait-choix').forEach(b => {
+    document.querySelectorAll('#rp-epaisseur .rp-epaisseur-choix').forEach(b => {
         b.addEventListener('click', (e) => {
             e.stopPropagation();
             choisirLEpaisseurDuContour(b.dataset.trait);
         });
     });
+    // La ligne du menu qui ouvre la fenêtre de l'apparence.
+    const ligneApparence = document.getElementById('rp-apparence-fenetres');
+    if (ligneApparence) ligneApparence.addEventListener('click', () => ouvrirLApparenceDesFenetres());
+    poserLeThemeDesFenetres();
     brancherLaPoigneeDesOutils();
 });
 

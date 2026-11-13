@@ -696,17 +696,30 @@ module.exports = async function (browser) {
     // venait de dire. On MESURE qu'elle est montrée, et sur la même ligne : un
     // champ qu'on peut lire et écrire depuis le code mais que personne ne voit
     // passerait pour un réglage en état de marche.
+    // ELLE A DÉMÉNAGÉ AVEC SA LIGNE, ET L'INTENTION N'A PAS BOUGÉ.
+    //
+    // Le trait des fenêtres a maintenant quatre réglages — franc ou discret,
+    // sa couleur, son épaisseur, le thème — et le menu n'a SIX PIXELS de
+    // marge avant de se remettre à défiler sur un écran court. Ils tiennent
+    // donc dans une fenêtre à eux, qu'une ligne du menu ouvre : « Apparence
+    // des fenêtres… ». Ce qu'on mesure ici reste mot pour mot ce qu'on
+    // mesurait — la couleur se choisit LÀ OÙ LE TRAIT S'ALLUME, sur la même
+    // ligne, à sa droite —, seulement l'endroit a changé.
     const ouEstLaCase = await page.evaluate(async () => {
-        // ON OUVRE LE MENU POUR LE REGARDER : fermé, tout ce qu'il contient est
-        // « display:none », et l'on mesurerait un réglage que personne ne voit.
         const ouvrir = document.getElementById('btn-reglages-barre');
         const menu = document.getElementById('reglages-barre');
         if (!menu.classList.contains('visible')) ouvrir.click();
         await new Promise(ok => setTimeout(ok, 250));
+        const ligne = document.getElementById('rp-apparence-fenetres');
+        const laLigneOuvre = !!ligne;
+        if (ligne) ligne.click();
+        await new Promise(ok => setTimeout(ok, 450));
         const champ = document.getElementById('rp-contour-couleur');
         const bouton = document.getElementById('rp-contours');
         const c = champ.getBoundingClientRect(), b = bouton.getBoundingClientRect();
         const vu = {
+            laLigneOuvre,
+            dansLaFenetre: !!champ.closest('#apparence-fenetres'),
             type: champ.type,
             montree: !!champ.getClientRects().length,
             surLaMemeLigne: Math.abs((c.top + c.height / 2) - (b.top + b.height / 2)) <= 2,
@@ -716,6 +729,8 @@ module.exports = async function (browser) {
         menu.classList.remove('visible');      // on laisse le menu comme on l'a trouvé
         return vu;
     });
+    r.verifie('une ligne du menu ouvre l\'apparence des fenêtres, et la couleur y est',
+        ouEstLaCase.laLigneOuvre && ouEstLaCase.dansLaFenetre, JSON.stringify(ouEstLaCase));
     r.egal('la couleur du contour est une vraie case de couleur, et on la voit',
         { type: ouEstLaCase.type, montree: ouEstLaCase.montree }, { type: 'color', montree: true });
     r.verifie('elle est posée sur la ligne de « Contours francs », à sa droite',

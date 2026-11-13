@@ -88,7 +88,7 @@ module.exports = async function (browser) {
     await page.evaluate(() => window.choisirLEpaisseurDuContour(3));
     await page.waitForTimeout(150);
     const panneau = await page.evaluate(() => {
-        const b = Array.from(document.querySelectorAll('#rp-trait .rp-trait-choix'));
+        const b = Array.from(document.querySelectorAll('#rp-epaisseur .rp-epaisseur-choix'));
         return { combien: b.length,
                  allumes: b.filter(x => x.classList.contains('actif')).map(x => x.dataset.trait),
                  dits: b.filter(x => x.getAttribute('aria-pressed') === 'true').map(x => x.dataset.trait) };

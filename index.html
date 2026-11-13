@@ -6,8 +6,8 @@
     <!-- CETTE PAGE-CI NE SE GARDE PAS EN CACHE.
          « Le lecteur de dictée a deux étages » — il ne les avait plus depuis
          des heures, mais le navigateur servait une page d'avant. Tout le
-         dépôt est protégé par des numéros de version — « style.css?v=255 »,
-         « script.js?v=460 » — et ces numéros sont écrits DANS CETTE PAGE.
+         dépôt est protégé par des numéros de version — « style.css?v=257 »,
+         « script.js?v=462 » — et ces numéros sont écrits DANS CETTE PAGE.
          Gardée en cache, elle réclame les anciens fichiers : le mécanisme
          entier ne sert alors à rien, et l'on croit un correctif absent quand
          il est simplement pas encore reçu. La page se revalide donc à chaque
@@ -43,7 +43,7 @@
     <script src="./lib/localforage/localforage.min.js?v=1"></script>
     <script src="./lib/qrcode/qrcode.min.js?v=1"></script>
     <script src="./lib/fonts/nunito-base64.js?v=1"></script>
-    <link rel="stylesheet" href="style.css?v=255">
+    <link rel="stylesheet" href="style.css?v=257">
 
     <!-- S'INSTALLER, POUR OUVRIR LES PDF DEPUIS WINDOWS.
          « Comment faire pour ouvrir un PDF par défaut avec Au Tableau, ou le
@@ -2149,6 +2149,70 @@
          bouton Ajouter est inactif » : il ne l'était pas, sa réponse était
          cachée sous l'emploi du temps. Voir la même règle, et la même panne,
          dans « .modal-backdrop ». -->
+    <!-- ==============================================================
+         L'APPARENCE DES FENÊTRES, DANS UNE FENÊTRE
+
+         Elle n'a ni voile ni barre écrite à la main : elle a la FORME d'une
+         fenêtre — posée, opaque, arrondie, plus grande que 150 × 70 —, et
+         c'est à cela que l'application les reconnaît. Elle reçoit donc sa
+         barre de titre, sa croix, son contour et sa place dans l'empilement
+         comme les quarante autres, sans une ligne de code pour le demander.
+         C'est aussi la démonstration de ce qu'on veut partout : le même
+         système pour toutes les fenêtres.
+         ============================================================== -->
+    <div id="apparence-fenetres" data-fenetre-titre="Apparence des fenêtres"
+        style="display:none; position:fixed; left:50%; top:50%; transform:translate(-50%,-50%);
+               width:min(520px, calc(100vw - 32px)); max-height:min(560px, calc(100vh - 32px));
+               overflow:auto; background:#ffffff; border-radius:10px; z-index:200080;
+               box-shadow:0 18px 48px rgba(0,0,0,0.28); padding:16px;">
+        <div class="af-rubrique">Le trait des fenêtres</div>
+                    <!-- LA COULEUR SE CHOISIT LÀ OÙ LE TRAIT S'ALLUME. Elle
+                         occupait une ligne à elle, sous « Contours francs », et
+                         répétait le mot « contours » que la ligne du dessus
+                         venait de dire. Une pastille au bout de la ligne suffit :
+                         le trait est noir parce que c'est la couleur choisie, et
+                         non parce qu'il est écrit en dur — qui le veut bleu, ou
+                         assorti à son école, le change ici, et les barres, les
+                         fenêtres et les tiroirs suivent tous. -->
+                    <div class="rp-ligne" id="rp-contour-boite">
+                        <button class="rp-choix" id="rp-contours"
+                            title="Un trait franc autour des barres et des fenêtres : elles se détachent d'un document blanc projeté en grand, au lieu d'y disparaître">Contours francs</button>
+                        <button type="button" class="rp-rendre" id="rp-contour-rendre"
+                            style="display:none;" title="Rendre au trait sa couleur noire">Noir</button>
+                        <label class="rp-pastille"
+                            title="La couleur du trait autour des barres et des fenêtres">
+                            <input type="color" id="rp-contour-couleur" value="#000000">
+                        </label>
+                        <!-- L'ÉPAISSEUR DU TRAIT, SUR LA MÊME LIGNE QUE SA
+                             COULEUR. Un pixel se voit très bien sur un écran de
+                             bureau ; projeté en 1024 de large sur un mur de
+                             classe, vu du fond de la salle, il se devine.
+                             Trois crans suffisent, et le fin reste le défaut.
+
+                             ET PAS UNE LIGNE DE PLUS. Posée sur sa propre
+                             rangée, cette commande faisait passer le menu de
+                             377 à 437 pixels, et il se remettait à défiler sur
+                             un écran court — ce que deux chapitres
+                             interdisent, pour une raison déjà mesurée : « Un
+                             peu grand, les paramètres. » Trois chiffres au
+                             bout de la ligne du trait disent la même chose
+                             sans rien coûter : ils parlent du même trait. -->
+                        <span class="rp-epaisseur" id="rp-epaisseur" role="group"
+                            aria-label="Épaisseur du trait des contours">
+                            <button type="button" class="rp-epaisseur-choix" data-trait="1"
+                                title="Trait fin : un pixel">1</button>
+                            <button type="button" class="rp-epaisseur-choix" data-trait="2"
+                                title="Trait moyen : deux pixels">2</button>
+                            <button type="button" class="rp-epaisseur-choix" data-trait="3"
+                                title="Trait épais : trois pixels, qui se voient du fond de la classe">3</button>
+                        </span>
+                    </div>
+        <div class="af-rubrique">Le thème</div>
+        <p class="af-mot">Il habille la barre de titre et la boîte de réglages des outils.
+            Les fenêtres qui peignent leur propre fond gardent le leur.</p>
+        <div class="af-themes" id="af-themes" role="group" aria-label="Thème des fenêtres"></div>
+    </div>
+
     <div id="custom-prompt-modal"
         style="display: none; position: absolute; left: 200px; top: 150px; width: 320px; z-index: 200100; flex-direction: column; background: #ffffff; border-radius: 10px; box-shadow: 0 15px 40px rgba(0,0,0,0.3); border: 1px solid #dfe6e9; overflow: hidden;">
         <!-- UNE CROIX, COMME TOUTES LES AUTRES FENÊTRES. Cette boîte-ci a sa
@@ -2664,47 +2728,23 @@
                          auprès du nom des outils : deux réglages d'apparence. -->
                     <button class="rp-choix" id="rp-nuit"
                         title="Tableau sombre, craie claire">Tableau sombre</button>
-                    <!-- LA COULEUR SE CHOISIT LÀ OÙ LE TRAIT S'ALLUME. Elle
-                         occupait une ligne à elle, sous « Contours francs », et
-                         répétait le mot « contours » que la ligne du dessus
-                         venait de dire. Une pastille au bout de la ligne suffit :
-                         le trait est noir parce que c'est la couleur choisie, et
-                         non parce qu'il est écrit en dur — qui le veut bleu, ou
-                         assorti à son école, le change ici, et les barres, les
-                         fenêtres et les tiroirs suivent tous. -->
-                    <div class="rp-ligne" id="rp-contour-boite">
-                        <button class="rp-choix" id="rp-contours"
-                            title="Un trait franc autour des barres et des fenêtres : elles se détachent d'un document blanc projeté en grand, au lieu d'y disparaître">Contours francs</button>
-                        <button type="button" class="rp-rendre" id="rp-contour-rendre"
-                            style="display:none;" title="Rendre au trait sa couleur noire">Noir</button>
-                        <label class="rp-pastille"
-                            title="La couleur du trait autour des barres et des fenêtres">
-                            <input type="color" id="rp-contour-couleur" value="#000000">
-                        </label>
-                        <!-- L'ÉPAISSEUR DU TRAIT, SUR LA MÊME LIGNE QUE SA
-                             COULEUR. Un pixel se voit très bien sur un écran de
-                             bureau ; projeté en 1024 de large sur un mur de
-                             classe, vu du fond de la salle, il se devine.
-                             Trois crans suffisent, et le fin reste le défaut.
+                    <!-- UNE LIGNE QUI OUVRE UNE FENÊTRE, ET NON QUATRE
+                         RÉGLAGES DE PLUS DANS LE MENU.
 
-                             ET PAS UNE LIGNE DE PLUS. Posée sur sa propre
-                             rangée, cette commande faisait passer le menu de
-                             377 à 437 pixels, et il se remettait à défiler sur
-                             un écran court — ce que deux chapitres
-                             interdisent, pour une raison déjà mesurée : « Un
-                             peu grand, les paramètres. » Trois chiffres au
-                             bout de la ligne du trait disent la même chose
-                             sans rien coûter : ils parlent du même trait. -->
-                        <span class="rp-trait" id="rp-trait" role="group"
-                            aria-label="Épaisseur du trait des contours">
-                            <button type="button" class="rp-trait-choix" data-trait="1"
-                                title="Trait fin : un pixel">1</button>
-                            <button type="button" class="rp-trait-choix" data-trait="2"
-                                title="Trait moyen : deux pixels">2</button>
-                            <button type="button" class="rp-trait-choix" data-trait="3"
-                                title="Trait épais : trois pixels, qui se voient du fond de la classe">3</button>
-                        </span>
-                    </div>
+                         Le trait des fenêtres a maintenant quatre réglages —
+                         franc ou discret, sa couleur, son épaisseur, et le
+                         thème. Les poser ici les aurait mis en file au milieu
+                         de « Nom des outils » et « Afficher la date », et le
+                         menu n'a SIX PIXELS de marge avant de se remettre à
+                         défiler sur un écran de 800 × 500 : mesuré, et deux
+                         chapitres l'interdisent.
+
+                         Ils tiennent donc tous dans une fenêtre à eux, et
+                         cette ligne prend EXACTEMENT la place de celle qu'elle
+                         remplace : le menu ne gagne pas un pixel, et ce qui
+                         parle du même sujet se regarde ensemble. -->
+                    <button class="rp-choix" id="rp-apparence-fenetres"
+                        title="Le trait des fenêtres, sa couleur, son épaisseur et le thème">Apparence des fenêtres…</button>
                     <button class="rp-choix" id="rp-date">Afficher la date</button>
 
                     <div class="rp-titre">Sur le tableau</div>
@@ -4426,7 +4466,7 @@
     <!-- Le fond de carte du monde (Natural Earth, domaine public) est livré
          avec l'application : la géographie doit marcher sans connexion. -->
     <script src="./lib/maps/monde.js?v=1"></script>
-    <script src="script.js?v=460"></script>
+    <script src="script.js?v=462"></script>
     <script src="pc-figures.js?v=1"></script>
     <script src="plugin.js?v=136"></script>
     <script src="./lib/documents/documents.js?v=2"></script>
