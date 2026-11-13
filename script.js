@@ -27036,22 +27036,99 @@ if (zoomSlider && btnZoomToggle) {
 // MODALE FLOTTANTE ET TAMPON (POUR PLUGINS)
 // ==========================================
 let isDraggingPrompt = false; let promptStartX = 0; let promptStartY = 0;
-const promptModal = document.getElementById('custom-prompt-modal');
-const promptHandle = promptModal.querySelector('.drag-handle-prompt');
+// LA BOÎTE DES RÉGLAGES N'EST PLUS « LA » BOÎTE, MAIS « LA BOÎTE VIVANTE ».
+//
+// « On ne peut ouvrir qu'un plugin à la fois. » Ce n'était pas un oubli :
+// cette boîte est UN SEUL élément de la page, rempli à neuf par chacun des
+// quarante-deux outils qui s'en servent. Ouvrir le deuxième effaçait le
+// premier, et rien ne le disait.
+//
+// Épingler ne clone rien : on DÉTACHE la boîte vivante — ses champs gardent
+// donc leurs fonctions, leur aperçu, leur bouton « Créer », puisque ce sont
+// les mêmes éléments — et l'on pose une boîte neuve derrière elle pour
+// l'outil suivant. D'où cette variable qui n'est plus constante : elle
+// désigne la boîte qu'on remplit en ce moment, pas un élément pour toujours.
+let promptModal = document.getElementById('custom-prompt-modal');
+const SQUELETTE_DE_LA_BOITE = promptModal.innerHTML;
 
-// Rendre la modale déplaçable
-promptHandle.addEventListener('mousedown', (e) => {
-    isDraggingPrompt = true;
-    promptStartX = e.clientX - promptModal.offsetLeft;
-    promptStartY = e.clientY - promptModal.offsetTop;
-});
+// Rendre la modale déplaçable. La boîte neuve en a besoin comme l'ancienne :
+// ce qui était écrit une fois pour toutes s'écrit maintenant pour chacune.
+function brancherLeDeplacementDeLaBoite(boite) {
+    const poignee = boite && boite.querySelector('.drag-handle-prompt');
+    if (!poignee || poignee.dataset.deplacementBranche) return;
+    poignee.dataset.deplacementBranche = '1';
+    poignee.addEventListener('mousedown', (e) => {
+        isDraggingPrompt = true;
+        promptStartX = e.clientX - boite.offsetLeft;
+        promptStartY = e.clientY - boite.offsetTop;
+        boiteQuonDeplace = boite;
+    });
+}
+let boiteQuonDeplace = null;
+brancherLeDeplacementDeLaBoite(promptModal);
 window.addEventListener('mousemove', (e) => {
-    if (isDraggingPrompt) {
-        promptModal.style.left = (e.clientX - promptStartX) + 'px';
-        promptModal.style.top = (e.clientY - promptStartY) + 'px';
+    if (isDraggingPrompt && boiteQuonDeplace) {
+        boiteQuonDeplace.style.left = (e.clientX - promptStartX) + 'px';
+        boiteQuonDeplace.style.top = (e.clientY - promptStartY) + 'px';
     }
 });
-window.addEventListener('mouseup', () => isDraggingPrompt = false);
+window.addEventListener('mouseup', () => { isDraggingPrompt = false; boiteQuonDeplace = null; });
+
+// ÉPINGLER : LA BOÎTE VIVANTE DEVIENT UNE FENÊTRE ORDINAIRE.
+//
+// Elle perd ses identifiants — c'est par eux que le prochain outil trouve la
+// boîte à remplir —, elle cesse d'être une « question » au sens du système de
+// fenêtres (la liste des boîtes sans barre va par identifiant), et elle reçoit
+// donc tout ce que reçoit une fenêtre : la barre commune, sa croix, son
+// contour, sa place dans l'empilement. Rien de tout cela n'est écrit ici : il
+// suffit qu'elle en ait la forme.
+let combienDeBoitesEpinglees = 0;
+
+function epinglerLaBoiteDesReglages() {
+    const epinglee = promptModal;
+    if (!epinglee || !epinglee.getClientRects().length) return null;
+    combienDeBoitesEpinglees++;
+    const suffixe = '-epingle-' + combienDeBoitesEpinglees;
+
+    // 1. Une boîte neuve prend sa place, vide, avec les mêmes identifiants.
+    const neuve = epinglee.cloneNode(false);
+    neuve.innerHTML = SQUELETTE_DE_LA_BOITE;
+    neuve.style.display = 'none';
+    epinglee.parentNode.insertBefore(neuve, epinglee.nextSibling);
+
+    // 2. L'ancienne cède ses identifiants, et ne répond plus qu'à son nom.
+    epinglee.id = 'custom-prompt-modal' + suffixe;
+    epinglee.querySelectorAll('[id^="custom-prompt-"]').forEach(e => { e.id += suffixe; });
+    epinglee.dataset.epinglee = '1';
+
+    // 3. Son épingle n'a plus rien à épingler — et tant qu'elle paraît, la
+    //    barre d'origine garde une commande, donc elle ne s'efface pas et
+    //    l'on se retrouve avec deux bandeaux l'un sur l'autre.
+    const sonEpingle = epinglee.querySelector('.fen-epingle');
+    if (sonEpingle) sonEpingle.style.display = 'none';
+
+    // 4. On la confie au système de fenêtres, qui la reconnaît à sa forme.
+    if (typeof equiperLesModales === 'function') equiperLesModales(epinglee);
+    if (typeof poserLeContourDesFenetres === 'function') poserLeContourDesFenetres(epinglee);
+
+    // 5. ET LA NEUVE NAÎT EN DÉCALÉ.
+    //
+    //    Mesuré sur la première version : les deux boîtes se posaient au même
+    //    endroit, au pixel près. L'outil suivant recouvrait entièrement celui
+    //    qu'on venait d'épingler — on ne voyait de lui qu'un liseré de boutons
+    //    sous l'autre —, et l'épingle ne servait donc à rien de ce qu'on lui
+    //    demande. Vingt-huit pixels en bas à droite : c'est le décalage des
+    //    fenêtres en cascade depuis qu'il y a des fenêtres, et il laisse voir
+    //    la barre de titre de celle de dessous, qui porte son nom.
+    const r = epinglee.getBoundingClientRect();
+    neuve.style.left = Math.round(r.left + 28) + 'px';
+    neuve.style.top = Math.round(r.top + 28) + 'px';
+    promptModal = neuve;
+    brancherLeDeplacementDeLaBoite(neuve);
+    annulerLaBoite = null;        // ce qui attendait une réponse est parti avec elle
+    return epinglee;
+}
+window.epinglerLaBoiteDesReglages = epinglerLaBoiteDesReglages;
 
 // La fonction Universelle
 // La fonction Universelle (avec Palette Rapide)
@@ -29040,10 +29117,30 @@ function ajusterLesRangeesDeCouleur(container, colonnes, ecart) {
 }
 
 function openCustomPrompt(title, fields, onChange, onValidate, onCancel) {
-    annulerLaBoite = onCancel || annulerModePlugin;
-    document.getElementById('custom-prompt-title').innerText = title;
-    const container = document.getElementById('custom-prompt-inputs');
-    const previewBox = document.getElementById('custom-prompt-preview');
+    // LA BOÎTE QU'ON REMPLIT, RETENUE ICI UNE FOIS POUR TOUTES.
+    //
+    // Les commandes qu'on va brancher plus bas doivent agir sur CETTE
+    // boîte-là, et non sur « la boîte » au moment où l'on appuie : épinglée,
+    // elle n'est plus la boîte vivante, et « Annuler » aurait refermé celle
+    // du voisin.
+    const laBoite = promptModal;
+    // ET ELLE RETIENT LE MODE QUI RÉGNAIT À SON OUVERTURE.
+    //
+    // Les quarante-deux outils qui se servent de cette boîte arment leur mode
+    // AVANT de l'ouvrir : « setMode('fraction') », puis la boîte. Tant qu'il
+    // n'y en avait qu'une à l'écran, cela suffisait. Épinglée, elle survit à
+    // l'ouverture d'un autre outil, qui pose SON mode par-dessus — et
+    // « Créer » fabriquait alors le tampon de la fraction pendant que le
+    // tableau attendait un matériel base 10. Mesuré : le clic suivant ne
+    // posait rien, ni la fraction, dont le mode n'était plus là, ni la base
+    // 10, dont le tampon n'avait jamais été fait. Deux outils cassés pour un
+    // seul geste.
+    laBoite.__mode = (typeof mode !== 'undefined') ? mode : null;
+    laBoite.__annuler = onCancel || annulerModePlugin;
+    annulerLaBoite = laBoite.__annuler;
+    laBoite.querySelector('#custom-prompt-title').innerText = title;
+    const container = laBoite.querySelector('#custom-prompt-inputs');
+    const previewBox = laBoite.querySelector('#custom-prompt-preview');
     container.innerHTML = '';
 
     // ET CE QUE L'APERÇU DESSINE SE LIT AUSSI.
@@ -29108,7 +29205,7 @@ function openCustomPrompt(title, fields, onChange, onValidate, onCancel) {
     // largeur de l'écran moins ses marges qui commande.
     const largeurVoulue = Math.max(320,
         colonnes * COLONNE_PX + (colonnes - 1) * ECART_X + 2 * MARGE_BOITE + 2);
-    promptModal.style.width = 'min(' + largeurVoulue + 'px, calc(100vw - 32px))';
+    laBoite.style.width = 'min(' + largeurVoulue + 'px, calc(100vw - 32px))';
 
     // CE QU'IL FAUT POUR UNE RANGÉE DE COULEUR.
     //
@@ -29376,7 +29473,7 @@ function openCustomPrompt(title, fields, onChange, onValidate, onCancel) {
         container.appendChild(wrap); inputElements.push(inp);
     });
 
-    promptModal.style.display = 'flex';
+    laBoite.style.display = 'flex';
     if (inputElements.length > 0 && inputElements[0].focus) inputElements[0].focus();
     // ET LA PLACE DES COULEURS SE MESURE, ELLE NE SE SUPPOSE PAS.
     //
@@ -29398,21 +29495,51 @@ function openCustomPrompt(title, fields, onChange, onValidate, onCancel) {
 
     poserLaBoiteDansLEcran();
 
-    const btnOk = document.getElementById('custom-prompt-ok'); const btnCancel = document.getElementById('custom-prompt-cancel');
+    const btnOk = laBoite.querySelector('#custom-prompt-ok');
+    const btnCancel = laBoite.querySelector('#custom-prompt-cancel');
     const newBtnOk = btnOk.cloneNode(true); const newBtnCancel = btnCancel.cloneNode(true);
     btnOk.parentNode.replaceChild(newBtnOk, btnOk); btnCancel.parentNode.replaceChild(newBtnCancel, btnCancel);
 
     newBtnOk.addEventListener('click', () => {
-        promptModal.style.display = 'none';
-        annulerLaBoite = null;
+        // UNE FENÊTRE ÉPINGLÉE RESTE OUVERTE APRÈS « CRÉER ». C'est tout ce
+        // qu'on lui demande : poser trois dés, puis deux autres, sans rouvrir
+        // la fenêtre entre chaque. Celle qui n'est pas épinglée se referme,
+        // comme toujours : elle a posé sa question, elle a sa réponse.
+        if (!laBoite.dataset.epinglee) laBoite.style.display = 'none';
+        // UNE BOÎTE ÉPINGLÉE RÉARME SON OUTIL AVANT DE VALIDER. Sans cela,
+        // « Créer » fabrique un tampon que le tableau n'attend plus.
+        // On ne réarme que les modes D'OUTIL : si la boîte a été ouverte
+        // alors qu'on tenait le crayon, lui rendre le crayon désarmerait
+        // l'outil du voisin sans rien apporter à personne.
+        if (laBoite.dataset.epinglee && laBoite.__mode
+            && typeof mode !== 'undefined' && mode !== laBoite.__mode
+            && !MODES_DE_BASE.includes(laBoite.__mode)
+            && typeof setMode === 'function') {
+            setMode(laBoite.__mode);
+        }
+        laBoite.__annuler = null;
+        if (laBoite === promptModal) annulerLaBoite = null;
         if (onValidate) onValidate(inputElements.map(i => i.type === 'checkbox' ? i.checked : i.value));
     });
-    newBtnCancel.addEventListener('click', () => { promptModal.style.display = 'none'; refermerLaBoite(); });
+    newBtnCancel.addEventListener('click', () => { laBoite.style.display = 'none'; refermerLaBoite(laBoite); });
+
+    // L'ÉPINGLE, BRANCHÉE SUR CETTE BOÎTE-CI. Elle est posée à chaque
+    // ouverture, et non une fois pour toutes : la boîte neuve qui naît d'un
+    // épinglage a la sienne, toute fraîche, qui n'a encore rien écouté.
+    const epingle = laBoite.querySelector('.fen-epingle');
+    if (epingle && !epingle.dataset.branchee) {
+        epingle.dataset.branchee = '1';
+        epingle.addEventListener('pointerdown', (e) => e.stopPropagation());
+        epingle.addEventListener('click', (e) => {
+            e.stopPropagation();
+            epinglerLaBoiteDesReglages();
+        });
+    }
 
     // LA CROIX DE LA BARRE FAIT CE QUE FAIT « ANNULER » — le même geste, la même
     // conséquence, et surtout celui qui attend une réponse est prévenu. Elle est
     // posée une fois pour toutes : la boîte, elle, est réutilisée à chaque outil.
-    const croix = document.getElementById('custom-prompt-fermer');
+    const croix = laBoite.querySelector('#custom-prompt-fermer');
     if (croix && !croix.dataset.branchee) {
         croix.dataset.branchee = '1';
         // La barre entière déplace la boîte : sans ceci, viser la croix
@@ -29420,18 +29547,26 @@ function openCustomPrompt(title, fields, onChange, onValidate, onCancel) {
         croix.addEventListener('pointerdown', (e) => e.stopPropagation());
         croix.addEventListener('click', (e) => {
             e.stopPropagation();
-            const boite = document.getElementById('custom-prompt-modal');
+            // ELLE RETROUVE SA BOÎTE PAR LE HAUT, et non par son nom : une
+            // boîte épinglée a changé de nom, et chercher « la » boîte
+            // refermerait celle d'à côté.
+            const boite = croix.closest('[data-boite-reglages]');
             if (boite) boite.style.display = 'none';
-            refermerLaBoite();
+            refermerLaBoite(boite);
         });
     }
 }
 
 // Referme la boîte de réglages en prévenant celui qui l'a ouverte : sans cela,
 // un « await demanderUneLigne(...) » resterait suspendu pour toujours.
-function refermerLaBoite() {
-    const faire = annulerLaBoite;
-    annulerLaBoite = null;
+function refermerLaBoite(boite) {
+    // CHAQUE BOÎTE SAIT CE QUE RENONCER VEUT DIRE POUR ELLE. Sans cela, une
+    // fenêtre épinglée qu'on referme exécuterait le renoncement de la boîte
+    // ouverte en ce moment — et désarmerait l'outil du voisin.
+    const cible = boite || promptModal;
+    const faire = (cible && cible.__annuler) || (cible === promptModal ? annulerLaBoite : null);
+    if (cible) cible.__annuler = null;
+    if (!boite || cible === promptModal) annulerLaBoite = null;
     if (faire) faire();
 }
 

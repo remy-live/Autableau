@@ -10018,6 +10018,31 @@ body[data-theme-fenetre="contraste"] {
     color: #d63031;
 }
 
+/* L'ÉPINGLE A LES HABITS DE LA CROIX : trois commandes de barre de titre
+   doivent être de la même main. Seule sa couleur de survol change — elle ne
+   ferme rien, elle garde. */
+.fen-epingle {
+    flex: none;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    padding: 0;
+    border: none;
+    border-radius: 7px;
+    background: transparent;
+    color: var(--f-pale);
+    line-height: 1;
+    cursor: pointer;
+    transition: color 0.15s, background 0.15s;
+}
+
+.fen-epingle:hover, .fen-epingle:focus-visible {
+    background: rgba(108, 92, 231, 0.16);
+    color: #6c5ce7;
+}
+
 .fen-tete .fen-plein { flex: none; }
 
 /* (le mode sombre passe désormais par les jetons « --f-* », en haut de ce
