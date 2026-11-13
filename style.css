@@ -11161,6 +11161,105 @@ body[data-theme-fenetre="contraste"] {
 }
 
 /* ============================================================
+   ATELIER D'AXE
+   Même coquille que les autres ateliers : la scène à gauche, ce qu'on lui
+   dit à droite. Un axe dit d'abord une ÉTENDUE — la scène est donc large et
+   peu haute, et c'est elle qui respire quand les ponts s'empilent.
+   ============================================================ */
+/* LA FENÊTRE PREND LA HAUTEUR DE CE QU'ELLE CONTIENT.
+   La coquille commune des ateliers est haute de 720 pixels, ce qui convient
+   à une carte ou à une frise — des dessins qui remplissent. Un axe est large
+   et plat : mesuré, il laissait 440 pixels de blanc sous lui, et la fenêtre
+   avait l'air cassée. Le plafond reste, pour les axes chargés de ponts. */
+#axa-fenetre { height: auto; max-height: min(720px, 94vh); }
+
+.axa-plan {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 12px;
+    min-width: 0;
+}
+
+/* LA SCÈNE PREND LA PLACE QU'IL FAUT, ET PAS PLUS. L'axe grandit en hauteur
+   à chaque étage de ponts : une hauteur fixe l'aurait rogné dès le deuxième,
+   et c'est au deuxième qu'on compare deux écritures. */
+.axa-scene {
+    background: #ffffff;
+    border: 1px solid rgba(0, 0, 0, 0.10);
+    border-radius: 10px;
+    padding: 10px 6px;
+    color: #2d3436;
+    overflow: auto;
+}
+
+.axa-scene svg { display: block; width: 100%; height: auto; max-width: 100%; }
+
+/* LA ZONE DE CLIC EST PLUS LARGE QUE LE TRAIT. Une graduation fait deux
+   pixels de large : viser deux pixels au doigt, devant une classe, c'est
+   rater une fois sur deux. Le rectangle transparent en fait vingt-six. */
+.axa-grad .axa-zone { fill: transparent; }
+.axa-grad:hover .axa-zone { fill: rgba(108, 92, 231, 0.12); }
+.axa-pont:hover path { stroke-width: 4.5; }
+
+.axa-aide { font-size: 12px; color: #64748b; min-height: 16px; }
+
+.axa-liste { display: flex; flex-wrap: wrap; gap: 6px; font-size: 12px; color: #64748b; }
+
+.axa-puce {
+    font: inherit;
+    font-size: 12px;
+    font-weight: 700;
+    padding: 3px 9px;
+    border: 1.5px solid;
+    border-radius: 999px;
+    background: transparent;
+    cursor: pointer;
+}
+
+.axa-puce:hover { background: rgba(0, 0, 0, 0.05); }
+
+/* TROIS BORNES SUR UNE LIGNE : début, fin, pas se lisent ensemble ou pas du
+   tout — on ne règle jamais l'un sans regarder les deux autres. */
+.axa-trio { display: flex; gap: 6px; }
+.axa-trio span { flex: 1; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.axa-trio i { font-size: 10px; font-style: normal; color: #64748b; text-transform: uppercase; }
+.axa-trio input { width: 100%; box-sizing: border-box; }
+
+/* UN BOUTON ET SON CHIFFRE SUR UNE LIGNE. Le champ hérite du « width: 100% »
+   des entrées du panneau, qui vaut pour une colonne ; dans une rangée, il
+   réclamait toute la largeur et débordait du panneau — mesuré, la somme
+   sortait de la fenêtre par la droite, et le bouton d'à côté se repliait sur
+   trois lignes. On le pose donc à une largeur fixe, et c'est le bouton qui
+   prend ce qui reste. */
+.axa-duo { display: flex; gap: 6px; align-items: stretch; }
+.axa-duo .atelier-btn { flex: 1 1 auto; min-width: 0; }
+.axa-panneau .axa-duo input { flex: 0 0 92px; width: 92px; min-width: 0; }
+
+/* LE CHAMP DE LA SOMME A DROIT À PLUS DE PLACE : « 1/4 + 1/4 + 1/2 » fait
+   quinze signes, et une somme tronquée ne se relit pas. */
+.axa-panneau .axa-duo input#axa-somme { flex: 0 0 132px; width: 132px; }
+
+.axa-teintes { display: flex; flex-wrap: wrap; gap: 6px; }
+
+.axa-teinte {
+    width: 26px;
+    height: 26px;
+    border-radius: 50%;
+    border: 2px solid transparent;
+    box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.15);
+    cursor: pointer;
+    padding: 0;
+}
+
+.axa-teinte.choisie { border-color: #ffffff; box-shadow: 0 0 0 2.5px #2d3436; }
+
+.dark-mode .axa-scene { background: #141b20; border-color: #3d4852; color: #dfe6e9; }
+.dark-mode .axa-teinte.choisie { box-shadow: 0 0 0 2.5px #dfe6e9; }
+.dark-mode .axa-panneau select { background: #2f3941; color: #dfe6e9; border-color: #3d4852; }
+
+/* ============================================================
    ATELIER FRISES
    Même coquille que l'atelier cartes : l'aperçu à gauche, ce qu'on lui dit
    à droite. Une frise dit d'abord une DURÉE — l'aperçu doit donc être large.

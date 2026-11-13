@@ -121,9 +121,18 @@ module.exports = async function (browser) {
     // On renumérote au lieu d'empiler toujours plus haut : sans quoi la bande
     // finirait par passer devant les questions, et « Effacer le tableau ? »
     // repasserait derrière une fenêtre d'outil.
+    // ON LIT L'ÉTAGE SUR SON PORTEUR, comme « passerDevant » le pose.
+    //
+    // Une fenêtre née dans un VOILE ne porte pas son étage elle-même : c'est
+    // le voile dissous qui le tient, et sa fenêtre n'a rien dans son style.
+    // Mesuré le jour où l'atelier d'axe est arrivé dans le tiroir — ce
+    // chapitre prend le PREMIER outil qui ouvre une fenêtre, et ce fut lui :
+    // le compte tombait à un, et le contrôle avec, alors que l'empilement
+    // marchait parfaitement.
     const bande = await page.evaluate(() => {
         const etages = [...document.querySelectorAll('[data-equipee="1"]')]
-            .map(el => parseInt(el.style.zIndex, 10)).filter(n => isFinite(n));
+            .map(el => parseInt(porteurDeLEtage(el).style.zIndex, 10))
+            .filter(n => isFinite(n));
         return { plusHaut: Math.max(...etages), combien: etages.length };
     });
     r.verifie('plusieurs fenêtres sont bien en jeu', bande.combien >= 2, String(bande.combien));

@@ -2328,6 +2328,584 @@ registerPlugin('axeTool', 'Maths - Numérique', {
     onPointerDown: function (rawPos) { if (mode === 'axe_math' && this.currentStamp) { images.push({ id: nextId++, x: rawPos.x - this.currentStamp.w / 2, y: rawPos.y - this.currentStamp.h / 2, w: this.currentStamp.w, h: this.currentStamp.h, cx: 0, cy: 0, cw: this.currentStamp.w, ch: this.currentStamp.h, src: this.currentStamp.src, z: globalZ++, pluginData: { id: 'axeTool', args: this.currentArgs } }); saveState(); setMode('pointer'); this.currentStamp = null; return true; } return false; }
 });
 
+// ==========================================================================
+// L'ATELIER D'AXE : DES PONTS DE COULEUR SUR UNE DROITE GRADUÉE
+// ==========================================================================
+// « Un atelier d'axe avec des ponts colorés pour les fractions. Les fractions
+//   sont traversées par le pont. Et des ponts automatiques aussi. »
+//
+// L'axe mathématique existe déjà, et il sait tout faire d'un axe — sauf
+// MONTRER UN MORCEAU. Or c'est toute la leçon sur les fractions : trois
+// dixièmes, ce n'est pas un point, c'est la DISTANCE de zéro à trois
+// dixièmes. Le point ne dit rien de la part ; l'arc, lui, la tient d'un bout
+// à l'autre, et l'on voit que deux quarts et un demi couvrent le même chemin.
+//
+// UN ATELIER, ET NON UNE BOÎTE DE RÉGLAGES. On pose un pont en cliquant ses
+// deux bouts sur l'axe : c'est le geste de la craie, et il n'a pas
+// d'équivalent dans un champ de texte. Taper « 0-0,3 » pour obtenir un arc
+// demande de savoir d'avance ce qu'on veut montrer, alors qu'on le cherche
+// devant la classe.
+//
+// EN ARC, ET NON EN CROCHET. L'arc est la façon dont on l'écrit à la main
+// depuis toujours — et surtout il ne se confond avec rien : un crochet sous
+// un axe gradué ressemble à une accolade de regroupement, qui veut dire
+// autre chose en mathématiques.
+registerPlugin('axeAtelier', 'Maths - Numérique', {
+    currentStamp: null, currentState: null, editingImage: null,
+
+    TEINTES: ['#5b4bd6', '#0984e3', '#d63031', '#00b894', '#e17055', '#2d3436'],
+
+    etatNeuf: function () {
+        return {
+            debut: 0, fin: 1, pas: 0.25, ecriture: 'fraction',
+            couleur: '#5b4bd6', etiquette: 'fraction', mot: 'une part',
+            cote: 'alterne', somme: '1/4 + 1/4 + 1/2',
+            parts: 4, ponts: []
+        };
+    },
+
+    // ---- fractions : lire, réduire, écrire -------------------------------
+    pgcd: function (a, b) { a = Math.abs(a); b = Math.abs(b); while (b) { const t = b; b = a % b; a = t; } return a || 1; },
+    fraction: function (num, den) {
+        if (den < 0) { num = -num; den = -den; }
+        const d = this.pgcd(num, den);
+        return { num: num / d, den: den / d, val: num / den };
+    },
+    // « 3/4 », « 1 1/2 », « 0,75 » : les trois écritures que le professeur
+    // tape sans y penser. Refuser l'une des trois, c'est refuser la moitié
+    // des fractions du programme.
+    lire: function (brut, defaut) {
+        const t = String(brut == null ? '' : brut).trim().replace(',', '.');
+        if (!t) return defaut;
+        const f = /^(-?\d+(?:\.\d+)?)\s*\/\s*(-?\d+(?:\.\d+)?)$/.exec(t);
+        if (f) { const d = parseFloat(f[2]); if (!d) return defaut; return parseFloat(f[1]) / d; }
+        const m = /^(-?\d+)\s+(\d+)\s*\/\s*(\d+)$/.exec(t);
+        if (m) { const d = +m[3]; if (!d) return defaut; const s = +m[1] < 0 ? -1 : 1; return +m[1] + s * (+m[2] / d); }
+        const n = parseFloat(t);
+        return isNaN(n) ? defaut : n;
+    },
+    // Le dénominateur que le pas impose : 1/10 → 10, 0,25 → 4. C'est lui qui
+    // décide si une graduation s'écrit « 3/10 » ou « 0,3 ».
+    denominateurDuPas: function (pas) {
+        for (let d = 1; d <= 100; d++) if (Math.abs(pas * d - Math.round(pas * d)) < 1e-9) return d;
+        return 1;
+    },
+    echapper: function (t) {
+        return String(t == null ? '' : t)
+            .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;');
+    },
+
+    // ---- le dessin --------------------------------------------------------
+    valeurs: function (etat) {
+        const out = [];
+        const pas = Math.abs(etat.pas) || 1;
+        const n = Math.floor((etat.fin - etat.debut) / pas + 1e-9);
+        // UNE BORNE, ET POUR UNE RAISON MESURÉE : « Début 0, Fin 100, Pas
+        // 0,001 » fabrique cent mille graduations, et la page se fige. Le
+        // professeur ne saurait pas que c'est son pas qui l'a figée.
+        const combien = Math.min(n, 400);
+        for (let i = 0; i <= combien; i++) out.push(etat.debut + i * pas);
+        return out;
+    },
+
+    etiquetteDe: function (etat, v, den) {
+        if (etat.ecriture === 'aucune') return null;
+        const f = this.fraction(Math.round(v * den), den);
+        const enFraction = etat.ecriture === 'fraction' || (etat.ecriture === 'auto' && den > 1);
+        if (!enFraction || f.den === 1) {
+            return { haut: null, bas: null, plat: String(Math.round(f.val * 1000) / 1000).replace('.', ',') };
+        }
+        return { haut: String(f.num), bas: String(f.den), plat: null };
+    },
+
+    // LES PONTS QUI SE CHEVAUCHENT MONTENT D'UN ÉTAGE. Se superposer serait
+    // illisible — et c'est justement quand on COMPARE deux écritures qu'on en
+    // pose deux au même endroit : trois dixièmes contre un cinquième.
+    etages: function (ponts) {
+        const pris = [];
+        return ponts.map(p => {
+            let e = 0;
+            while (pris.some(q => q.e === e && !(q.b <= p.a + 1e-9 || q.a >= p.b - 1e-9))) e++;
+            pris.push({ a: p.a, b: p.b, e });
+            return e;
+        });
+    },
+
+    texteDuPont: function (p, den) {
+        if (p.etiquette === 'rien') return null;
+        if (p.etiquette === 'libre') return { haut: p.mot || '', bas: null };
+        const d = Math.abs(p.b - p.a);
+        const f = this.fraction(Math.round(d * den), den);
+        if (f.den === 1) return { haut: String(f.num), bas: null };
+        return { haut: String(f.num), bas: String(f.den) };
+    },
+
+    // Le dessin complet. « echelle » vaut 1 dans la fenêtre et davantage pour
+    // le tampon posé au tableau, qu'on regarde du fond de la classe.
+    fabriquerSVG: function (etat, echelle) {
+        const k = echelle || 1;
+        const L = 760 * k, mX = 46 * k;
+        const den = this.denominateurDuPas(etat.pas);
+        const vals = this.valeurs(etat);
+        const etendue = (etat.fin - etat.debut) || 1;
+        const abscisse = (v) => mX + (v - etat.debut) / etendue * (L - 2 * mX);
+        const avecFractions = etat.ecriture === 'fraction' || (etat.ecriture === 'auto' && den > 1);
+        const basNombres = (etat.ecriture === 'aucune' ? 14 : (avecFractions ? 40 : 24)) * k;
+
+        const marques = (cote) => etat.ponts
+            .map((p, i) => ({ a: Math.min(p.a, p.b), b: Math.max(p.a, p.b), p: p, i: i }))
+            .filter(o => o.p.cote === cote);
+        const haut = marques('haut'), bas = marques('bas');
+        const etHaut = this.etages(haut), etBas = this.etages(bas);
+        const nbHaut = etHaut.length ? Math.max.apply(null, etHaut) + 1 : 0;
+        const nbBas = etBas.length ? Math.max.apply(null, etBas) + 1 : 0;
+
+        const PONT = 34 * k;
+        const hautPonts = nbHaut * PONT + (nbHaut ? 16 * k : 0);
+        const basPonts = nbBas * PONT + (nbBas ? 16 * k : 0);
+        const y = hautPonts + 26 * k;
+        const H = y + basNombres + basPonts + 10 * k;
+        const trait = 2 * k, encre = etat.encre || '#2d3436';
+
+        let s = '<svg xmlns="http://www.w3.org/2000/svg" width="' + Math.round(L)
+            + '" height="' + Math.round(H) + '" viewBox="0 0 ' + L + ' ' + H + '">';
+        s += '<line x1="' + mX + '" y1="' + y + '" x2="' + (L - mX) + '" y2="' + y
+            + '" stroke="' + encre + '" stroke-width="' + trait + '"/>';
+        s += '<polygon points="' + (L - mX) + ',' + y + ' ' + (L - mX - 13 * k) + ',' + (y - 6 * k)
+            + ' ' + (L - mX - 13 * k) + ',' + (y + 6 * k) + '" fill="' + encre + '"/>';
+        s += '<line x1="' + mX + '" y1="' + (y - 9 * k) + '" x2="' + mX + '" y2="' + (y + 9 * k)
+            + '" stroke="' + encre + '" stroke-width="' + (3 * k) + '" stroke-linecap="round"/>';
+
+        vals.forEach(v => {
+            const x = abscisse(v);
+            s += '<g class="axa-grad" data-val="' + v + '">';
+            s += '<rect class="axa-zone" x="' + (x - 13 * k) + '" y="' + (y - 16 * k)
+                + '" width="' + (26 * k) + '" height="' + (32 * k + basNombres) + '" rx="' + (6 * k) + '" fill="transparent"/>';
+            s += '<line x1="' + x + '" y1="' + (y - 9 * k) + '" x2="' + x + '" y2="' + (y + 9 * k)
+                + '" stroke="' + encre + '" stroke-width="' + trait + '"/>';
+            const e = this.etiquetteDe(etat, v, den);
+            if (e) {
+                if (e.plat !== null) {
+                    s += '<text x="' + x + '" y="' + (y + 24 * k) + '" text-anchor="middle" font-size="'
+                        + (13 * k) + '" font-family="sans-serif" fill="' + encre + '">' + e.plat + '</text>';
+                } else {
+                    s += '<text x="' + x + '" y="' + (y + 20 * k) + '" text-anchor="middle" font-size="'
+                        + (12 * k) + '" font-family="sans-serif" fill="' + encre + '">' + e.haut + '</text>';
+                    s += '<line x1="' + (x - 9 * k) + '" y1="' + (y + 24 * k) + '" x2="' + (x + 9 * k)
+                        + '" y2="' + (y + 24 * k) + '" stroke="' + encre + '" stroke-width="' + (1.4 * k) + '"/>';
+                    s += '<text x="' + x + '" y="' + (y + 37 * k) + '" text-anchor="middle" font-size="'
+                        + (12 * k) + '" font-family="sans-serif" fill="' + encre + '">' + e.bas + '</text>';
+                }
+            }
+            s += '</g>';
+        });
+
+        const dessinerPont = (o, etage, versLeHaut) => {
+            const a = abscisse(o.a), b = abscisse(o.b);
+            // LE PONT NE TOUCHE PAS LES NOMBRES DE L'AXE. Au-dessus il laisse
+            // de quoi respirer ; en dessous il part plus bas que le dernier
+            // chiffre. Un arc qui frôle une fraction se lit comme une barre de
+            // fraction, et l'on ne sait plus ce qui appartient à quoi.
+            const base = versLeHaut ? y - 14 * k : y + basNombres + 12 * k;
+            const h = 22 * k + etage * PONT;
+            const sommet = versLeHaut ? base - h : base + h;
+            const d = 'M ' + a + ' ' + base + ' C ' + a + ' ' + sommet + ', ' + b + ' ' + sommet + ', ' + b + ' ' + base;
+            let g = '<g class="axa-pont" data-i="' + o.i + '">';
+            g += '<path d="' + d + '" fill="none" stroke="' + o.p.couleur + '" stroke-width="'
+                + (3 * k) + '" stroke-linecap="round"/>';
+            g += '<circle cx="' + a + '" cy="' + base + '" r="' + (3.5 * k) + '" fill="' + o.p.couleur + '"/>';
+            g += '<circle cx="' + b + '" cy="' + base + '" r="' + (3.5 * k) + '" fill="' + o.p.couleur + '"/>';
+            const mot = this.texteDuPont(o.p, den);
+            if (mot && (mot.haut || mot.bas)) {
+                const cx = (a + b) / 2;
+                const cy = versLeHaut ? sommet + h * 0.22 - 4 * k : sommet - h * 0.22 + 12 * k;
+                if (mot.bas) {
+                    g += '<text x="' + cx + '" y="' + (cy - 7 * k) + '" text-anchor="middle" font-size="'
+                        + (12.5 * k) + '" font-weight="700" font-family="sans-serif" fill="' + o.p.couleur + '">' + this.echapper(mot.haut) + '</text>';
+                    g += '<line x1="' + (cx - 9 * k) + '" y1="' + (cy - 3 * k) + '" x2="' + (cx + 9 * k)
+                        + '" y2="' + (cy - 3 * k) + '" stroke="' + o.p.couleur + '" stroke-width="' + (1.5 * k) + '"/>';
+                    g += '<text x="' + cx + '" y="' + (cy + 10 * k) + '" text-anchor="middle" font-size="'
+                        + (12.5 * k) + '" font-weight="700" font-family="sans-serif" fill="' + o.p.couleur + '">' + this.echapper(mot.bas) + '</text>';
+                } else {
+                    g += '<text x="' + cx + '" y="' + cy + '" text-anchor="middle" font-size="'
+                        + (12.5 * k) + '" font-weight="700" font-family="sans-serif" fill="' + o.p.couleur + '">' + this.echapper(mot.haut) + '</text>';
+                }
+            }
+            g += '</g>';
+            return g;
+        };
+
+        haut.forEach((o, i) => { s += dessinerPont(o, etHaut[i] || 0, true); });
+        bas.forEach((o, i) => { s += dessinerPont(o, etBas[i] || 0, false); });
+
+        if (etat.enCours !== null && etat.enCours !== undefined) {
+            s += '<circle cx="' + abscisse(etat.enCours) + '" cy="' + y + '" r="' + (6 * k)
+                + '" fill="none" stroke="' + etat.couleur + '" stroke-width="' + (2.5 * k) + '"/>';
+        }
+        return s + '</svg>';
+    },
+
+    // ---- poser un pont ----------------------------------------------------
+    cotePourLeProchain: function (etat) {
+        if (etat.cote !== 'alterne') return etat.cote;
+        const h = etat.ponts.filter(p => p.cote === 'haut').length;
+        const b = etat.ponts.filter(p => p.cote === 'bas').length;
+        return h <= b ? 'haut' : 'bas';
+    },
+
+    poserUnPont: function (v) {
+        const etat = this.etat;
+        if (etat.enCours === null || etat.enCours === undefined) { etat.enCours = v; this.rendre(); return; }
+        // Recliquer le même bout renonce : c'est le geste naturel pour se
+        // reprendre, et il évite une commande « annuler » de plus.
+        if (Math.abs(etat.enCours - v) < 1e-9) { etat.enCours = null; this.rendre(); return; }
+        etat.ponts.push({
+            a: etat.enCours, b: v, couleur: etat.couleur,
+            etiquette: etat.etiquette, mot: etat.mot, cote: this.cotePourLeProchain(etat)
+        });
+        etat.enCours = null;
+        this.rendre();
+    },
+
+    couleurVoisine: function (couleur) {
+        const i = this.TEINTES.indexOf(couleur);
+        return this.TEINTES[(i < 0 ? 0 : i + 1) % this.TEINTES.length];
+    },
+
+    // LES PONTS AUTOMATIQUES.
+    //
+    // Poser dix ponts à la main pour montrer les dixièmes, c'est vingt clics
+    // devant une classe qui attend — et ce sont justement les cas les plus
+    // fréquents : chaque graduation, une sur deux, le tout d'un bout à
+    // l'autre, l'axe partagé en n parts, ou une somme à empiler.
+    //
+    // DEUX COULEURS QUI ALTERNENT, et non une seule : une file de ponts de la
+    // même teinte se compte mal, on perd le fil au sixième. L'alternance les
+    // sépare à l'œil sans rien ajouter au dessin.
+    //
+    // ILS REMPLACENT, ILS NE S'AJOUTENT PAS. « Automatique » veut dire « voilà
+    // la situation » : empiler une série sur la précédente donnerait un
+    // fouillis qu'il faudrait défaire pont par pont.
+    ponterAutomatiquement: function (quoi) {
+        const etat = this.etat;
+        const vals = this.valeurs(etat);
+        const bords = [];
+        if (quoi === 'chaque') {
+            for (let i = 0; i + 1 < vals.length; i++) bords.push([vals[i], vals[i + 1]]);
+        } else if (quoi === 'deux') {
+            for (let i = 0; i + 1 < vals.length; i += 2) bords.push([vals[i], vals[i + 1]]);
+        } else if (quoi === 'entier') {
+            bords.push([etat.debut, etat.fin]);
+        } else if (quoi === 'parts') {
+            const n = Math.max(2, Math.min(24, parseInt(etat.parts, 10) || 4));
+            const large = (etat.fin - etat.debut) / n;
+            for (let i = 0; i < n; i++) bords.push([etat.debut + i * large, etat.debut + (i + 1) * large]);
+        } else if (quoi === 'somme') {
+            // UNE SOMME S'EMPILE D'UN GESTE. « 1/4 + 1/4 + 1/2 » : trois ponts
+            // bout à bout depuis le début de l'axe, et l'on voit d'un coup
+            // qu'ils couvrent l'unité. C'est la figure que le professeur
+            // dessine le plus souvent, et c'était vingt clics.
+            let ou = etat.debut;
+            String(etat.somme || '').split('+').forEach(morceau => {
+                const d = this.lire(morceau, 0);
+                if (!d) return;
+                bords.push([ou, ou + d]);
+                ou += d;
+            });
+        }
+        if (!bords.length) return 0;
+        const seconde = this.couleurVoisine(etat.couleur);
+        etat.ponts = bords.map((bord, k) => ({
+            a: bord[0], b: bord[1],
+            couleur: k % 2 ? seconde : etat.couleur,
+            etiquette: etat.etiquette, mot: etat.mot,
+            cote: etat.cote === 'alterne' ? (k % 2 ? 'bas' : 'haut') : etat.cote
+        }));
+        etat.enCours = null;
+        this.rendre();
+        return bords.length;
+    },
+
+    // ---- la fenêtre -------------------------------------------------------
+    init: function () {
+        const grid = document.getElementById('plugins-grid');
+        if (!grid) return;
+        const btn = document.createElement('button');
+        btn.className = 'btn'; btn.dataset.mode = 'axe_atelier'; btn.title = 'Atelier d\'axe';
+        btn.innerHTML = '<svg viewBox="0 0 24 24" class="stroke-icon" fill="none" stroke="currentColor"'
+            + ' stroke-width="2" stroke-linecap="round"><line x1="2" y1="17" x2="22" y2="17"/>'
+            + '<line x1="6" y1="14" x2="6" y2="20"/><line x1="12" y1="14" x2="12" y2="20"/>'
+            + '<line x1="18" y1="14" x2="18" y2="20"/>'
+            + '<path d="M6 13 C6 6, 12 6, 12 13" stroke-width="2.4"/></svg>';
+        grid.appendChild(btn);
+        btn.addEventListener('click', (e) => { this.ouvrir(); e.stopPropagation(); });
+
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape' && mode === 'axe_atelier' && this.currentStamp) {
+                this.currentStamp = null; setMode('pointer');
+                if (typeof showToast === 'function') showToast('Tampon annulé');
+                draw();
+            }
+        });
+    },
+
+    ouvrir: function (etat, imageEnEdition) {
+        this.etat = etat ? JSON.parse(JSON.stringify(etat)) : this.etatNeuf();
+        if (!Array.isArray(this.etat.ponts)) this.etat.ponts = [];
+        this.etat.enCours = null;
+        this.editingImage = imageEnEdition || null;
+        this.batirFenetre();
+        this.rendre();
+    },
+
+    fermer: function () {
+        const f = document.getElementById('axa-fond');
+        if (f) f.remove();
+    },
+
+    batirFenetre: function () {
+        let fond = document.getElementById('axa-fond');
+        if (fond) fond.remove();
+        fond = document.createElement('div');
+        fond.id = 'axa-fond'; fond.className = 'atelier-fond';
+        fond.innerHTML = `
+        <div id="axa-fenetre" class="atelier-fenetre">
+            <div class="atelier-tete">
+                <b>📐 Atelier d'axe</b>
+                <span style="flex:1"></span>
+                <button class="atelier-btn" id="axa-fermer">✕</button>
+            </div>
+            <div class="atelier-corps">
+                <div class="axa-plan">
+                    <div class="axa-scene" id="axa-scene"></div>
+                    <div class="axa-aide" id="axa-aide"></div>
+                    <div class="axa-liste" id="axa-liste"></div>
+                </div>
+                <div class="atelier-panneau axa-panneau">
+                    <label class="atelier-label">L'axe</label>
+                    <div class="axa-trio">
+                        <span><i>Début</i><input type="text" id="axa-debut" inputmode="decimal"></span>
+                        <span><i>Fin</i><input type="text" id="axa-fin" inputmode="decimal"></span>
+                        <span><i>Pas</i><input type="text" id="axa-pas" inputmode="decimal"></span>
+                    </div>
+                    <select id="axa-ecriture">
+                        <option value="fraction">Nombres en fractions</option>
+                        <option value="decimal">Nombres en décimaux</option>
+                        <option value="auto">Écriture automatique</option>
+                        <option value="aucune">Sans les nombres</option>
+                    </select>
+
+                    <label class="atelier-label">Le pont qu'on pose</label>
+                    <div class="axa-teintes" id="axa-teintes"></div>
+                    <select id="axa-etiquette">
+                        <option value="fraction">Écrire sa fraction</option>
+                        <option value="libre">Écrire un mot</option>
+                        <option value="rien">Ne rien écrire</option>
+                    </select>
+                    <input type="text" id="axa-mot" maxlength="18" hidden>
+                    <select id="axa-cote">
+                        <option value="alterne">Au-dessus puis en dessous</option>
+                        <option value="haut">Toujours au-dessus</option>
+                        <option value="bas">Toujours en dessous</option>
+                    </select>
+
+                    <label class="atelier-label">Ponts automatiques</label>
+                    <button class="atelier-btn atelier-large" data-auto="chaque">Chaque graduation</button>
+                    <button class="atelier-btn atelier-large" data-auto="deux">Une graduation sur deux</button>
+                    <button class="atelier-btn atelier-large" data-auto="entier">Tout l'axe d'un bout à l'autre</button>
+                    <div class="axa-duo">
+                        <button class="atelier-btn" data-auto="parts">En parts égales</button>
+                        <input type="number" id="axa-parts" min="2" max="24">
+                    </div>
+                    <div class="axa-duo">
+                        <button class="atelier-btn" data-auto="somme">Empiler la somme</button>
+                        <input type="text" id="axa-somme" placeholder="1/4 + 1/4 + 1/2">
+                    </div>
+                </div>
+            </div>
+            <div class="atelier-pied">
+                <button class="atelier-btn" id="axa-vider">Tout enlever</button>
+                <span style="flex:1"></span>
+                <button class="atelier-btn atelier-vert" id="axa-poser">Poser au tableau</button>
+            </div>
+        </div>`;
+        document.body.appendChild(fond);
+
+        const q = (id) => fond.querySelector(id);
+        q('#axa-fermer').addEventListener('click', () => this.fermer());
+        fond.addEventListener('mousedown', (e) => { if (e.target === fond) this.fermer(); });
+
+        q('#axa-teintes').innerHTML = this.TEINTES.map(t =>
+            '<button type="button" class="axa-teinte" data-teinte="' + t
+            + '" style="background:' + t + '" aria-label="couleur"></button>').join('');
+        q('#axa-teintes').addEventListener('click', (e) => {
+            const b = e.target.closest('[data-teinte]');
+            if (!b) return;
+            this.etat.couleur = b.dataset.teinte;
+            this.rendre();
+        });
+
+        // LES BORNES SE LISENT QUAND ON A FINI DE TAPER, pas à chaque touche.
+        // « 0,25 » passe par « 0 », puis « 0, » : relire à chaque frappe
+        // refaisait l'axe trois fois, dont deux fois faux, et le champ
+        // sautait sous les doigts.
+        [['debut', '#axa-debut', 0], ['fin', '#axa-fin', 1], ['pas', '#axa-pas', 1]].forEach(([cle, sel, defaut]) => {
+            q(sel).addEventListener('change', (e) => {
+                this.etat[cle] = this.lire(e.target.value, defaut);
+                if (cle === 'pas' && Math.abs(this.etat.pas) < 1e-9) this.etat.pas = defaut;
+                if (this.etat.fin <= this.etat.debut) this.etat.fin = this.etat.debut + Math.abs(this.etat.pas || 1);
+                this.rendre();
+            });
+        });
+        q('#axa-ecriture').addEventListener('change', (e) => { this.etat.ecriture = e.target.value; this.rendre(); });
+        q('#axa-etiquette').addEventListener('change', (e) => { this.etat.etiquette = e.target.value; this.rendre(); });
+        q('#axa-mot').addEventListener('input', (e) => { this.etat.mot = e.target.value; this.rendre(); });
+        q('#axa-cote').addEventListener('change', (e) => { this.etat.cote = e.target.value; this.rendre(); });
+        q('#axa-parts').addEventListener('change', (e) => { this.etat.parts = parseInt(e.target.value, 10) || 4; });
+        q('#axa-somme').addEventListener('change', (e) => { this.etat.somme = e.target.value; });
+        fond.querySelectorAll('[data-auto]').forEach(b => {
+            b.addEventListener('click', () => {
+                // Ce qu'on vient de taper dans le champ voisin compte, même si
+                // l'on n'en est pas sorti : on clique le bouton d'à côté.
+                this.etat.parts = parseInt(q('#axa-parts').value, 10) || this.etat.parts;
+                this.etat.somme = q('#axa-somme').value || this.etat.somme;
+                this.ponterAutomatiquement(b.dataset.auto);
+            });
+        });
+        q('#axa-vider').addEventListener('click', () => {
+            this.etat.ponts = []; this.etat.enCours = null; this.rendre();
+        });
+        q('#axa-poser').addEventListener('click', () => this.poser());
+
+        if (typeof equiperLesModales === 'function') equiperLesModales(fond);
+    },
+
+    rendre: function () {
+        const fond = document.getElementById('axa-fond');
+        if (!fond) return;
+        const q = (id) => fond.querySelector(id);
+        const etat = this.etat;
+
+        q('#axa-scene').innerHTML = this.fabriquerSVG(etat, 1);
+        q('#axa-scene').querySelectorAll('.axa-grad').forEach(g => {
+            g.style.cursor = 'pointer';
+            g.addEventListener('click', () => this.poserUnPont(parseFloat(g.dataset.val)));
+        });
+        q('#axa-scene').querySelectorAll('.axa-pont').forEach(g => {
+            g.style.cursor = 'pointer';
+            g.addEventListener('click', (e) => {
+                e.stopPropagation();
+                etat.ponts.splice(+g.dataset.i, 1);
+                this.rendre();
+            });
+        });
+
+        q('#axa-aide').textContent = (etat.enCours === null || etat.enCours === undefined)
+            ? 'Cliquez une graduation : c\'est le départ du pont.'
+            : 'Cliquez la graduation d\'arrivée. (Le même bout annule.)';
+
+        const den = this.denominateurDuPas(etat.pas);
+        q('#axa-liste').innerHTML = etat.ponts.length
+            ? etat.ponts.map((p, i) => {
+                const m = this.texteDuPont(p, den);
+                const nom = m ? (m.bas ? m.haut + '/' + m.bas : m.haut) : '—';
+                return '<button type="button" class="axa-puce" data-i="' + i + '" style="border-color:'
+                    + p.couleur + '; color:' + p.couleur + '" title="Enlever ce pont">'
+                    + this.echapper(nom) + ' ✕</button>';
+            }).join('')
+            : '<i>Aucun pont pour l\'instant.</i>';
+        q('#axa-liste').querySelectorAll('[data-i]').forEach(b => {
+            b.addEventListener('click', () => { etat.ponts.splice(+b.dataset.i, 1); this.rendre(); });
+        });
+
+        const ecrire = (sel, v) => { const e = q(sel); if (e && e.value !== String(v)) e.value = v; };
+        ecrire('#axa-debut', this.joliNombre(etat.debut));
+        ecrire('#axa-fin', this.joliNombre(etat.fin));
+        ecrire('#axa-pas', this.joliNombre(etat.pas));
+        q('#axa-ecriture').value = etat.ecriture;
+        q('#axa-etiquette').value = etat.etiquette;
+        q('#axa-cote').value = etat.cote;
+        q('#axa-parts').value = etat.parts;
+        q('#axa-somme').value = etat.somme;
+        q('#axa-mot').hidden = etat.etiquette !== 'libre';
+        if (etat.etiquette === 'libre') ecrire('#axa-mot', etat.mot);
+        q('#axa-teintes').querySelectorAll('[data-teinte]').forEach(b => {
+            b.classList.toggle('choisie', b.dataset.teinte === etat.couleur);
+        });
+    },
+
+    // 0,25 plutôt que 0.25, et 1/4 reste 1/4 si c'est ce qu'on avait tapé.
+    joliNombre: function (v) {
+        const r = Math.round(v * 1000) / 1000;
+        return String(r).replace('.', ',');
+    },
+
+    poser: function () {
+        const pourLeTableau = JSON.parse(JSON.stringify(this.etat));
+        pourLeTableau.enCours = null;
+        const svg = this.fabriquerSVG(pourLeTableau, 2);
+        const enEdition = this.editingImage;
+        createStampFromSVG(svg, (stamp) => {
+            if (enEdition) {
+                enEdition.src = stamp.src;
+                enEdition.cx = 0; enEdition.cy = 0;
+                enEdition.cw = stamp.w; enEdition.ch = stamp.h;
+                enEdition.h = enEdition.w * (stamp.h / stamp.w);
+                enEdition.pluginData = { id: 'axeAtelier', state: pourLeTableau };
+                this.editingImage = null;
+                draw(); saveState();
+                if (typeof showToast === 'function') showToast('Axe mis à jour');
+            } else {
+                this.currentStamp = stamp;
+                this.currentState = pourLeTableau;
+                setMode('axe_atelier');
+                if (typeof showToast === 'function') showToast('📌 Cliquez sur le tableau pour poser l\'axe');
+                draw();
+            }
+        });
+        this.fermer();
+    },
+
+    edit: function (imgObj) {
+        const etat = imgObj.pluginData && imgObj.pluginData.state;
+        this.ouvrir(etat || undefined, imgObj);
+    },
+
+    onDraw: function (ctx) {
+        if (mode === 'axe_atelier' && this.currentStamp && typeof mouseLogicalPos !== 'undefined' && mouseLogicalPos) {
+            const t = this.currentStamp;
+            ctx.globalAlpha = 0.5;
+            ctx.drawImage(t.img, mouseLogicalPos.x - t.w / 2, mouseLogicalPos.y - t.h / 2, t.w, t.h);
+            ctx.globalAlpha = 1;
+        }
+    },
+
+    onPointerMove: function (rawPos) {
+        if (mode === 'axe_atelier' && this.currentStamp) {
+            mouseLogicalPos = { x: rawPos.x, y: rawPos.y };
+            draw();
+        }
+        return false;
+    },
+
+    onPointerDown: function (rawPos) {
+        if (mode === 'axe_atelier' && this.currentStamp) {
+            const t = this.currentStamp;
+            images.push({
+                id: nextId++, x: rawPos.x - t.w / 2, y: rawPos.y - t.h / 2,
+                w: t.w, h: t.h, cx: 0, cy: 0, cw: t.w, ch: t.h,
+                src: t.src, z: globalZ++,
+                pluginData: { id: 'axeAtelier', state: this.currentState }
+            });
+            this.currentStamp = null;
+            saveState(); setMode('pointer'); draw();
+            return true;
+        }
+        return false;
+    }
+});
+
 // 6. REPÈRE CARTÉSIEN
 registerPlugin('repereTool', 'Maths - Numérique', {
     currentStamp: null, currentArgs: null,
