@@ -2461,9 +2461,13 @@ registerPlugin('axeAtelier', 'Maths - Numérique', {
         const nbHaut = etHaut.length ? Math.max.apply(null, etHaut) + 1 : 0;
         const nbBas = etBas.length ? Math.max.apply(null, etBas) + 1 : 0;
 
+        // L'ÉTIQUETTE SORT DE L'ARC : il lui faut sa place, en haut comme en
+        // bas. Vingt-six pixels pour une fraction empilée, mesurés depuis le
+        // vrai sommet de la courbe.
         const PONT = 34 * k;
-        const hautPonts = nbHaut * PONT + (nbHaut ? 16 * k : 0);
-        const basPonts = nbBas * PONT + (nbBas ? 16 * k : 0);
+        const AIR = 30 * k;
+        const hautPonts = nbHaut * PONT + (nbHaut ? AIR : 0);
+        const basPonts = nbBas * PONT + (nbBas ? AIR : 0);
         const y = hautPonts + 26 * k;
         const H = y + basNombres + basPonts + 10 * k;
         const trait = 2 * k, encre = etat.encre || '#2d3436';
@@ -2519,17 +2523,39 @@ registerPlugin('axeAtelier', 'Maths - Numérique', {
             const mot = this.texteDuPont(o.p, den);
             if (mot && (mot.haut || mot.bas)) {
                 const cx = (a + b) / 2;
-                const cy = versLeHaut ? sommet + h * 0.22 - 4 * k : sommet - h * 0.22 + 12 * k;
+                // LE SOMMET D'UN ARC N'EST PAS SON POINT DE CONTRÔLE.
+                //
+                // « Les fractions sont écrites bizarrement, je trouve que ce
+                // n'est pas beau. » Et c'était pire que pas beau : le
+                // dénominateur était posé SUR la courbe, qui lui passait au
+                // travers. Je plaçais l'étiquette par rapport au point de
+                // contrôle de la Bézier ; or une cubique symétrique culmine
+                // aux TROIS QUARTS du chemin vers lui — seize pixels et demi
+                // au lieu de vingt-deux pour le premier étage. Les six
+                // pixels manquants, c'était l'épaisseur du quatre.
+                //
+                // L'étiquette se pose donc par rapport au vrai sommet, et
+                // tout entière DEHORS : au-dessus de l'arc qui monte, en
+                // dessous de celui qui descend. Rien ne traverse plus rien.
+                const sommetVrai = base + 0.75 * (sommet - base);
+                const T = 12.5 * k;
                 if (mot.bas) {
-                    g += '<text x="' + cx + '" y="' + (cy - 7 * k) + '" text-anchor="middle" font-size="'
-                        + (12.5 * k) + '" font-weight="700" font-family="sans-serif" fill="' + o.p.couleur + '">' + this.echapper(mot.haut) + '</text>';
-                    g += '<line x1="' + (cx - 9 * k) + '" y1="' + (cy - 3 * k) + '" x2="' + (cx + 9 * k)
-                        + '" y2="' + (cy - 3 * k) + '" stroke="' + o.p.couleur + '" stroke-width="' + (1.5 * k) + '"/>';
-                    g += '<text x="' + cx + '" y="' + (cy + 10 * k) + '" text-anchor="middle" font-size="'
-                        + (12.5 * k) + '" font-weight="700" font-family="sans-serif" fill="' + o.p.couleur + '">' + this.echapper(mot.bas) + '</text>';
+                    // numérateur, barre, dénominateur — les mêmes écarts que
+                    // sous les graduations de l'axe, pour que les deux
+                    // fractions de la figure soient de la même main.
+                    const basDuBloc = versLeHaut ? sommetVrai - 6 * k : sommetVrai + 6 * k + 16 * k + 12 * k;
+                    const barre = basDuBloc - 12 * k;
+                    const hautDuBloc = barre - 4 * k;
+                    g += '<text x="' + cx + '" y="' + hautDuBloc + '" text-anchor="middle" font-size="'
+                        + T + '" font-weight="700" font-family="sans-serif" fill="' + o.p.couleur + '">' + this.echapper(mot.haut) + '</text>';
+                    g += '<line x1="' + (cx - 9 * k) + '" y1="' + barre + '" x2="' + (cx + 9 * k)
+                        + '" y2="' + barre + '" stroke="' + o.p.couleur + '" stroke-width="' + (1.5 * k) + '"/>';
+                    g += '<text x="' + cx + '" y="' + basDuBloc + '" text-anchor="middle" font-size="'
+                        + T + '" font-weight="700" font-family="sans-serif" fill="' + o.p.couleur + '">' + this.echapper(mot.bas) + '</text>';
                 } else {
-                    g += '<text x="' + cx + '" y="' + cy + '" text-anchor="middle" font-size="'
-                        + (12.5 * k) + '" font-weight="700" font-family="sans-serif" fill="' + o.p.couleur + '">' + this.echapper(mot.haut) + '</text>';
+                    const seul = versLeHaut ? sommetVrai - 6 * k : sommetVrai + 6 * k + 12 * k;
+                    g += '<text x="' + cx + '" y="' + seul + '" text-anchor="middle" font-size="'
+                        + T + '" font-weight="700" font-family="sans-serif" fill="' + o.p.couleur + '">' + this.echapper(mot.haut) + '</text>';
                 }
             }
             g += '</g>';
@@ -2543,7 +2569,133 @@ registerPlugin('axeAtelier', 'Maths - Numérique', {
             s += '<circle cx="' + abscisse(etat.enCours) + '" cy="' + y + '" r="' + (6 * k)
                 + '" fill="none" stroke="' + etat.couleur + '" stroke-width="' + (2.5 * k) + '"/>';
         }
+
+        // LE PONT QU'ON EST EN TRAIN DE TIRER, en pointillé.
+        //
+        // « Il faudrait aussi pouvoir faire les ponts à la souris, en
+        // cliquant puis en relâchant sur la fin. » Un geste qui ne montre
+        // rien tant qu'on ne l'a pas lâché se fait à l'aveugle : on voit donc
+        // l'arc naître sous la main. En pointillé, parce qu'il n'existe pas
+        // encore — le relâchement seul le pose.
+        if (etat.provisoire && Math.abs(etat.provisoire.b - etat.provisoire.a) > 1e-9) {
+            const pa = abscisse(Math.min(etat.provisoire.a, etat.provisoire.b));
+            const pb = abscisse(Math.max(etat.provisoire.a, etat.provisoire.b));
+            const versLeHaut = etat.provisoire.cote !== 'bas';
+            const base = versLeHaut ? y - 14 * k : y + basNombres + 12 * k;
+            const hh = 22 * k;
+            const som = versLeHaut ? base - hh : base + hh;
+            s += '<path d="M ' + pa + ' ' + base + ' C ' + pa + ' ' + som + ', ' + pb + ' ' + som
+                + ', ' + pb + ' ' + base + '" fill="none" stroke="' + etat.couleur
+                + '" stroke-width="' + (3 * k) + '" stroke-linecap="round" stroke-dasharray="'
+                + (6 * k) + ' ' + (5 * k) + '" opacity="0.6"/>';
+        }
         return s + '</svg>';
+    },
+
+    // ---- le geste : appuyer, glisser, relâcher -----------------------------
+    //
+    // « Il faudrait aussi pouvoir faire les ponts à la souris, en cliquant
+    //   puis en relâchant sur la fin. »
+    //
+    // LES DEUX GESTES COEXISTENT, et ce n'est pas une indécision : au tableau
+    // blanc interactif on tire du doigt, à la souris on tire aussi, mais un
+    // clic qui ne bouge pas doit rester un clic — c'est ainsi qu'on pose un
+    // pont très large sans traverser l'écran d'un trait. Un appui qui se
+    // relâche sur la même graduation laisse donc le départ armé, et le second
+    // clic finit le pont, comme avant.
+    //
+    // LES ÉCOUTEURS SONT POSÉS SUR LA SCÈNE, et non sur chaque graduation :
+    // la scène se redessine à chaque changement, ses enfants disparaissent
+    // avec, et un écouteur posé sur eux serait perdu au milieu du geste —
+    // c'est-à-dire exactement quand on en a besoin.
+    brancherLeGeste: function (scene) {
+        if (!scene || scene.dataset.gesteBranche) return;
+        scene.dataset.gesteBranche = '1';
+        const valeurSous = (e) => {
+            const cible = e.target && e.target.closest ? e.target.closest('.axa-grad') : null;
+            if (cible) return parseFloat(cible.dataset.val);
+            // Hors d'une graduation : on prend celle dont on est le plus près.
+            const svg = scene.querySelector('svg');
+            if (!svg) return null;
+            let laPlusProche = null, mieux = Infinity;
+            scene.querySelectorAll('.axa-grad').forEach(g => {
+                const r = g.getBoundingClientRect();
+                const d = Math.abs((r.left + r.right) / 2 - e.clientX);
+                if (d < mieux) { mieux = d; laPlusProche = parseFloat(g.dataset.val); }
+            });
+            return mieux <= 26 ? laPlusProche : null;
+        };
+
+        scene.addEventListener('pointerdown', (e) => {
+            const pont = e.target && e.target.closest ? e.target.closest('.axa-pont') : null;
+            if (pont) {
+                e.preventDefault();
+                this.etat.ponts.splice(+pont.dataset.i, 1);
+                this.etat.provisoire = null;
+                this.rendre();
+                return;
+            }
+            const v = valeurSous(e);
+            if (v === null) return;
+            e.preventDefault();
+            // CE QUI ÉTAIT ARMÉ AVANT CET APPUI SE RETIENT. L'appui pose un
+            // nouveau départ — c'est ce qu'il faut pour glisser —, mais s'il
+            // se relâche sur place, c'était un CLIC, et un clic doit finir le
+            // pont commencé au clic précédent. Sans cette mémoire, chaque
+            // clic ne faisait que réarmer le départ, et le pont ne venait
+            // jamais : mesuré, deux clics donnaient zéro pont.
+            this.geste = { depart: v, bouge: false, avant: (this.etat.enCours === undefined ? null : this.etat.enCours) };
+            this.etat.enCours = v;
+            this.etat.provisoire = null;
+            this.rendre();
+            try { scene.setPointerCapture(e.pointerId); } catch (err) { /* pas de capture ici */ }
+        });
+
+        scene.addEventListener('pointermove', (e) => {
+            if (!this.geste) return;
+            const v = valeurSous(e);
+            if (v === null || Math.abs(v - this.geste.depart) < 1e-9) {
+                if (this.etat.provisoire) { this.etat.provisoire = null; this.rendre(); }
+                return;
+            }
+            this.geste.bouge = true;
+            const dejaLa = this.etat.provisoire;
+            if (dejaLa && Math.abs(dejaLa.b - v) < 1e-9) return;   // rien de neuf à dessiner
+            this.etat.provisoire = { a: this.geste.depart, b: v, cote: this.cotePourLeProchain(this.etat) };
+            this.rendre();
+        });
+
+        const finir = (e) => {
+            if (!this.geste) return;
+            const v = valeurSous(e);
+            const depart = this.geste.depart;
+            const laMemoire = this.geste.avant;
+            this.geste = null;
+            this.etat.provisoire = null;
+            // Relâché ailleurs, et sur une autre graduation : le pont se pose.
+            if (v !== null && Math.abs(v - depart) > 1e-9) {
+                this.etat.enCours = depart;
+                this.poserUnPont(v);
+                return;
+            }
+            // Relâché sur place : c'était un clic. S'il en existait un
+            // avant, le pont se ferme entre les deux ; sur la même
+            // graduation, on renonce ; sinon le départ reste armé.
+            const avant = laMemoire;
+            if (avant !== null && avant !== undefined) {
+                if (Math.abs(avant - depart) > 1e-9) {
+                    this.etat.enCours = avant;
+                    this.poserUnPont(depart);
+                    return;
+                }
+                this.etat.enCours = null;
+            }
+            this.rendre();
+        };
+        scene.addEventListener('pointerup', finir);
+        scene.addEventListener('pointercancel', () => {
+            this.geste = null; this.etat.provisoire = null; this.rendre();
+        });
     },
 
     // ---- poser un pont ----------------------------------------------------
@@ -2787,19 +2939,11 @@ registerPlugin('axeAtelier', 'Maths - Numérique', {
         const q = (id) => fond.querySelector(id);
         const etat = this.etat;
 
-        q('#axa-scene').innerHTML = this.fabriquerSVG(etat, 1);
-        q('#axa-scene').querySelectorAll('.axa-grad').forEach(g => {
-            g.style.cursor = 'pointer';
-            g.addEventListener('click', () => this.poserUnPont(parseFloat(g.dataset.val)));
-        });
-        q('#axa-scene').querySelectorAll('.axa-pont').forEach(g => {
-            g.style.cursor = 'pointer';
-            g.addEventListener('click', (e) => {
-                e.stopPropagation();
-                etat.ponts.splice(+g.dataset.i, 1);
-                this.rendre();
-            });
-        });
+        const scene = q('#axa-scene');
+        scene.innerHTML = this.fabriquerSVG(etat, 1);
+        scene.querySelectorAll('.axa-grad').forEach(g => { g.style.cursor = 'pointer'; });
+        scene.querySelectorAll('.axa-pont').forEach(g => { g.style.cursor = 'pointer'; });
+        this.brancherLeGeste(scene);
 
         q('#axa-aide').textContent = (etat.enCours === null || etat.enCours === undefined)
             ? 'Cliquez une graduation : c\'est le départ du pont.'
@@ -36679,14 +36823,24 @@ registerPlugin('playingCardsTool', 'Maths - Numérique', {
             #pc-wrap .pc-header { background:#f8f9fa; padding:10px 15px; display:flex; justify-content:space-between; align-items:center; cursor:grab; border-bottom:1px solid #dfe6e9; touch-action:none; }
             #pc-wrap .pc-header:active { cursor:grabbing; }
             #pc-wrap .pc-body { display:flex; flex:1; overflow:hidden; }
-            #pc-wrap .pc-side { width:210px; background:#fdfdfd; border-right:1px solid #dfe6e9; padding:12px; display:flex; flex-direction:column; gap:12px; overflow-y:auto; }
+            /* LES CINQUANTE-DEUX CARTES TIENNENT, OU ELLES NE SERVENT À RIEN.
+               « Le plugin carte à jouer déborde. » Mesuré : la grille demande
+               692 pixels et n'en reçoit que 665 — vingt-sept de trop, et c'est
+               la colonne des ROIS qui passait sous le bord. Elle défilait, mais
+               silencieusement : on ne cherche pas un ascenseur dans un tableau
+               qu'on croit entier.
+               Les vingt-sept pixels se reprennent là où ils ne manquent à
+               personne : la colonne de gauche comptait sa largeur SANS son
+               bourrage — 210 annoncés, 235 occupés — et l'écart entre les
+               cases passe de quatre à trois. */
+            #pc-wrap .pc-side { width:210px; box-sizing:border-box; background:#fdfdfd; border-right:1px solid #dfe6e9; padding:12px; display:flex; flex-direction:column; gap:12px; overflow-y:auto; }
             #pc-wrap .pc-main { flex:1; display:flex; flex-direction:column; overflow:hidden; }
             #pc-wrap .pc-label { font-weight:bold; font-size:11px; color:#636e72; text-transform:uppercase; letter-spacing:.5px; }
             #pc-wrap .pc-seg { display:flex; flex-wrap:wrap; gap:4px; margin-top:4px; }
             #pc-wrap .pc-seg button { flex:1; min-width:56px; padding:6px 4px; border:1px solid #dfe6e9; background:#fff; border-radius:6px; cursor:pointer; font-size:12px; font-weight:bold; color:#2d3436; }
             #pc-wrap .pc-seg button.on { background:#0984e3; color:#fff; border-color:#0984e3; }
             #pc-wrap .pc-grid { padding:12px; overflow:auto; border-bottom:1px solid #dfe6e9; }
-            #pc-wrap table.pc-tab { border-collapse:separate; border-spacing:4px; }
+            #pc-wrap table.pc-tab { border-collapse:separate; border-spacing:3px; }
             #pc-wrap .pc-cell { width:42px; height:34px; border:1px solid #dfe6e9; border-radius:6px; background:#fff; cursor:pointer; font-weight:bold; font-size:13px; line-height:1; padding:0; }
             #pc-wrap .pc-cell:hover { border-color:#b2bec3; }
             #pc-wrap .pc-cell.on { background:#eaf4fd; border-color:#0984e3; box-shadow:inset 0 0 0 1px #0984e3; }

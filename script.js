@@ -28981,10 +28981,24 @@ function poserLaBoiteDansLEcran() {
         haut = Math.max(marge, window.innerHeight - marge - m.offsetHeight);
         m.style.top = haut + 'px';
     }
+    // J'AVAIS ÉCRIT ICI UNE RÈGLE DE PLUS — l'aperçu rendait sa place aux
+    // réglages avant de les laisser défiler. Sabotée, elle ne faisait tomber
+    // aucun contrôle, et la mesure a dit pourquoi : l'aperçu se dimensionne
+    // DÉJÀ sur la hauteur des réglages, si bien qu'il est petit précisément
+    // quand ils sont longs — 102 pixels sur un vidéoprojecteur de 1024 × 700,
+    // sous le plancher que ma règle lui donnait. Elle ne pouvait donc jamais
+    // rien reprendre. Du code que rien ne mesure est du code que personne ne
+    // saura corriger : il est parti.
     const place = window.innerHeight - marge - haut - fixe;
     if (reglages.offsetHeight > place) {
         reglages.style.maxHeight = Math.max(120, place) + 'px';
         reglages.style.overflowY = 'auto';
+        // ET L'ON VOIT QU'IL Y EN A PLUS DESSOUS. Une rangée coupée net ne se
+        // lit pas comme une liste qui défile, elle se lit comme une boîte
+        // cassée : c'est le mot qui est venu, « ça déborde ».
+        reglages.classList.add('reglages-defilent');
+    } else {
+        reglages.classList.remove('reglages-defilent');
     }
 }
 window.poserLaBoiteDansLEcran = poserLaBoiteDansLEcran;
@@ -29193,19 +29207,41 @@ function openCustomPrompt(title, fields, onChange, onValidate, onCancel) {
     // sur trois, neuf et plus sur quatre.
     const COLONNE_PX = 150, ECART_X = 16, MARGE_BOITE = 15;
     const combienDeReglages = fields.filter(f => f && f.type !== 'titre' && f.type !== 'hidden').length;
-    const colonnes = combienDeReglages >= 9 ? 4
+    let colonnes = combienDeReglages >= 9 ? 4
         : (combienDeReglages >= 5 ? 3 : (combienDeReglages >= 2 ? 2 : 1));
     container.style.display = 'grid';
-    container.style.gridTemplateColumns = `repeat(${colonnes}, minmax(0, 1fr))`;
     container.style.gap = '12px ' + ECART_X + 'px';
     container.style.alignItems = 'end'; // Aligne les champs vers le bas si les labels diffèrent
 
     // ET LA BOÎTE SUIT LA GRILLE — sans jamais dépasser l'écran. Une boîte de
     // 680 px tient sur un vidéoprojecteur de 1024 ; sur un téléphone, c'est la
     // largeur de l'écran moins ses marges qui commande.
-    const largeurVoulue = Math.max(320,
-        colonnes * COLONNE_PX + (colonnes - 1) * ECART_X + 2 * MARGE_BOITE + 2);
-    laBoite.style.width = 'min(' + largeurVoulue + 'px, calc(100vw - 32px))';
+    const largeurPour = (n) => Math.max(320,
+        n * COLONNE_PX + (n - 1) * ECART_X + 2 * MARGE_BOITE + 2);
+
+    // POSER LA GRILLE EST UN GESTE QU'ON REFAIT, ET NON UN RÉGLAGE DÉFINITIF.
+    //
+    // « Ça déborde. » Mesuré sur un écran de 760 pixels de haut : l'axe
+    // mathématique et ses douze réglages demandent 587 pixels de réglages
+    // pour 457 de place — la rangée « Couleur des dixièmes » était coupée en
+    // deux par l'aperçu, et rien ne disait qu'on pouvait faire défiler.
+    //
+    // La règle d'avant comptait les RÉGLAGES et s'arrêtait à quatre colonnes.
+    // Elle ne regardait pas l'écran : sur 1500 pixels de large, la boîte en
+    // occupait 682 et s'entassait en hauteur, faute de pouvoir s'étaler. On
+    // garde donc cette règle comme PLANCHER — c'est la forme qu'on préfère —
+    // et l'on ajoute des colonnes seulement quand la hauteur manque.
+    const poserLesColonnes = (n) => {
+        colonnes = n;
+        container.style.gridTemplateColumns = `repeat(${n}, minmax(0, 1fr))`;
+        laBoite.style.width = 'min(' + largeurPour(n) + 'px, calc(100vw - 32px))';
+        container.querySelectorAll('.prompt-case').forEach(w => {
+            const veut = parseInt(w.dataset.veutColonnes, 10) || 1;
+            const pris = Math.min(veut, n);
+            w.style.gridColumn = pris > 1 ? 'span ' + pris : '';
+        });
+    };
+    poserLesColonnes(colonnes);
 
     // CE QU'IL FAUT POUR UNE RANGÉE DE COULEUR.
     //
@@ -29265,9 +29301,13 @@ function openCustomPrompt(title, fields, onChange, onValidate, onCancel) {
         // libre prend deux colonnes, parce qu'on y écrit une phrase —
         // « 7/4=A ; 2,5=B » — et non un nombre. « mesure » est l'exception :
         // c'est un nombre qu'on écrit avec des mots, et il garde une colonne.
+        // CE QUE LE CHAMP VEUT, RETENU SUR LUI : la grille se repose quand la
+        // hauteur manque, et il faut alors savoir ce que chacun demandait,
+        // sans refaire tout le tour des réglages.
         let largeCombien = 1;
         if (field.type === 'color') largeCombien = colonnesPourUneCouleur();
-        else if (field.type === 'text' || field.type === 'textarea') largeCombien = Math.min(2, colonnes);
+        else if (field.type === 'text' || field.type === 'textarea') largeCombien = 2;
+        wrap.dataset.veutColonnes = String(largeCombien);
         if (largeCombien > 1) wrap.style.gridColumn = 'span ' + Math.min(largeCombien, colonnes);
 
         // Label au style Premium (Petit, majuscule, discret)
@@ -29484,7 +29524,10 @@ function openCustomPrompt(title, fields, onChange, onValidate, onCancel) {
     // sept pastilles en demandent 250. Elles débordaient. On attend donc que
     // la boîte soit ouverte, on lit la vraie largeur, et l'on donne aux
     // rangées de couleur le nombre de colonnes qu'il leur faut pour de bon.
-    requestAnimationFrame(() => ajusterLesRangeesDeCouleur(container, colonnes, ECART_X));
+    requestAnimationFrame(() => {
+        ajusterLesRangeesDeCouleur(container, colonnes, ECART_X);
+        poserLaBoiteDansLEcran();
+    });
 
     if (onChange && typeof onChange === 'function') {
         // Appelle la fonction onChange pour dessiner l'aperçu au chargement
@@ -29494,6 +29537,37 @@ function openCustomPrompt(title, fields, onChange, onValidate, onCancel) {
     }
 
     poserLaBoiteDansLEcran();
+
+    // ET SI LES RÉGLAGES NE TIENNENT TOUJOURS PAS, LA BOÎTE S'ÉLARGIT.
+    //
+    // « Ça déborde. » Mesuré sur un écran de 760 pixels de haut : l'axe
+    // mathématique demandait 587 pixels de réglages pour 457 de place. La
+    // rangée « Couleur des dixièmes » se retrouvait coupée en deux par
+    // l'aperçu, et rien ne disait qu'on pouvait faire défiler — une boîte
+    // coupée ne se lit pas comme une boîte qui défile, elle se lit comme une
+    // boîte cassée.
+    //
+    // ON N'ÉLARGIT QUE PAR NÉCESSITÉ, et d'une colonne à la fois : la forme
+    // préférée reste celle que le nombre de réglages commande. Huit colonnes
+    // au plus — au-delà, on lirait une ligne de huit cases sans savoir par où
+    // commencer —, et jamais plus large que l'écran.
+    const reglages = laBoite.querySelector('.prompt-reglages');
+    if (reglages) {
+        const tiennentDansLEcran = Math.floor(
+            (window.innerWidth - 32 - 2 * MARGE_BOITE - 2 + ECART_X) / (COLONNE_PX + ECART_X));
+        // SIX AU PLUS, ET POUR UNE RAISON MESURÉE : chaque rubrique occupe
+        // une rangée entière, et les réglages qui la suivent sont trois ou
+        // quatre. Passé six colonnes, on n'enlève plus une seule rangée — on
+        // étale la boîte sur tout l'écran pour y laisser des cases vides.
+        // Mesuré à huit colonnes : 1346 pixels de large, et autant de
+        // rangées qu'à quatre.
+        const maxi = Math.max(colonnes, Math.min(6, tiennentDansLEcran));
+        let garde = 0;
+        while (colonnes < maxi && reglages.scrollHeight > reglages.clientHeight + 1 && garde++ < 8) {
+            poserLesColonnes(colonnes + 1);
+            poserLaBoiteDansLEcran();
+        }
+    }
 
     const btnOk = laBoite.querySelector('#custom-prompt-ok');
     const btnCancel = laBoite.querySelector('#custom-prompt-cancel');

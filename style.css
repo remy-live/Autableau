@@ -14963,6 +14963,17 @@ body.dark-mode .cdx-apercu { background: #fff; }
     align-items: start;
 }
 
+/* UNE LISTE QUI DÉFILE LE DIT.
+   « Ça déborde. » Le mot est juste : une rangée coupée net par le bord de
+   l'aperçu ne se lit pas comme une liste qui continue plus bas, elle se lit
+   comme une boîte cassée. Un dégradé au ras du bord suffit à dire qu'il y a
+   une suite — et l'ascenseur reste là pour qui le cherche. */
+.prompt-reglages.reglages-defilent {
+    -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 22px), transparent 100%);
+    mask-image: linear-gradient(to bottom, #000 calc(100% - 22px), transparent 100%);
+    scrollbar-width: thin;
+}
+
 /* Les réglages à gauche, les deux boutons dessous : la colonne
    de gauche garde exactement la boîte d'avant. */
 #custom-prompt-modal.boite-large .prompt-reglages { grid-column: 1; grid-row: 1; }
