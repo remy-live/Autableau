@@ -465,11 +465,14 @@ module.exports = async function (browser) {
     //   18   au départ, tout visible en permanence
     //   16   le doublon et le résidu retirés
     //   12   les familles repliées sur leur tête
+    //   13   le texte promu tête de famille
     //
     // Ce contrôle est la sentinelle de ce chiffre-là : c'est par là qu'un bord
-    // regrossit, un bouton à la fois.
-    r.verifie('ET LE COMPTE Y EST : dix-huit boutons au bord au départ, seize après les retraits, douze depuis que chaque famille se replie sur sa tête',
-        enProjetant.barre + enProjetant.bande - (enProjetant.ongletMorceaux ? 1 : 0) === 12,
+    // regrossit, un bouton à la fois. Il remonte d'un cran, et c'est une
+    // demande : « j'aimerais que la toolbar de droite n'ait pas l'icône texte
+    // cachée. » Un bouton rendu à la vue, et non un bouton de plus.
+    r.verifie('ET LE COMPTE Y EST : dix-huit boutons au bord au départ, seize après les retraits, douze depuis que chaque famille se replie sur sa tête, treize depuis que le texte est une tête',
+        enProjetant.barre + enProjetant.bande - (enProjetant.ongletMorceaux ? 1 : 0) === 13,
         JSON.stringify(enProjetant));
 
     // ------------------------------------------------------------------
@@ -513,20 +516,35 @@ module.exports = async function (browser) {
         basculerLaDecoupe(false); majBarreDocument(); await attendre(250);
         return { repos, auCrayon, auxCiseaux, retour: etat() };
     });
-    r.egal('AU REPOS, LES TÊTES DE FAMILLE SEULES : la main, le crayon, les ciseaux — on alterne « sélection ↔ crayon » sans cesse, et cela doit rester un seul appui',
+    // LE TEXTE A REJOINT LES TÊTES.
+    //
+    // « Quand on a le PDF, la toolbar de droite, j'aimerais qu'elle n'ait pas
+    // l'icône texte cachée — pas [seulement] quand on appuie sur le stylo. »
+    //
+    // Il y était rangé comme un cousin du crayon, et c'est une erreur de
+    // parenté : écrire un bloc de texte sur un polycopié n'est pas une
+    // variante du tracé à main levée, c'est l'autre façon d'annoter — celle
+    // qu'on choisit D'ABORD quand on veut que le fond de la classe puisse
+    // lire. L'atteindre demandait de prendre le crayon pour faire paraître le
+    // texte, puis de prendre le texte : deux outils pour un geste, et le
+    // premier n'était là que pour ouvrir le tiroir du second.
+    r.egal('AU REPOS, LES TÊTES DE FAMILLE : la main, le crayon, LE TEXTE, les ciseaux — on alterne « sélection ↔ crayon » sans cesse, et cela doit rester un seul appui',
         [familles.repos.main, familles.repos.crayon, familles.repos.ciseaux,
          familles.repos.texte, familles.repos.cache, familles.repos.forme, familles.repos.rogner],
-        [true, true, true, false, false, false, false], JSON.stringify(familles.repos));
-    r.egal('PRENDRE LE CRAYON FAIT VENIR LE TEXTE ET LE CACHE : le geste qui ouvre la famille est celui qu\'on allait faire de toute façon — aucun appui ajouté',
+        [true, true, true, true, false, false, false], JSON.stringify(familles.repos));
+    // ET LE CACHE BLANC, LUI, RESTE DANS LA FAMILLE : il sert à couvrir une
+    // réponse imprimée pour écrire par-dessus, et il vient donc toujours
+    // APRÈS qu'on a décidé d'écrire.
+    r.egal('PRENDRE LE CRAYON FAIT VENIR LE CACHE : le geste qui ouvre la famille est celui qu\'on allait faire de toute façon — aucun appui ajouté',
         [familles.auCrayon.texte, familles.auCrayon.cache, familles.auCrayon.forme],
         [true, true, false], JSON.stringify(familles.auCrayon));
     r.egal('ARMER LES CISEAUX FAIT VENIR LA FORME ET LE ROGNAGE : « la forme de la découpe, c\'est vraiment à la marge, mais il faut le garder » — gardée, et montrée au seul moment où elle sert',
-        [familles.auxCiseaux.forme, familles.auxCiseaux.rogner, familles.auxCiseaux.texte],
+        [familles.auxCiseaux.forme, familles.auxCiseaux.rogner, familles.auxCiseaux.cache],
         [true, true, false], JSON.stringify(familles.auxCiseaux));
-    r.egal('et la famille se referme avec l\'outil qu\'on repose',
+    r.egal('et la famille se referme avec l\'outil qu\'on repose — le texte, lui, reste, puisqu\'il n\'en fait plus partie',
         [familles.retour.texte, familles.retour.cache,
          familles.retour.forme, familles.retour.rogner],
-        [false, false, false, false], JSON.stringify(familles.retour));
+        [true, false, false, false], JSON.stringify(familles.retour));
     r.verifie('LA BARRE Y GAGNE EN HAUTEUR, ET C\'EST LA MESURE QUI COMPTE : 547 px au départ, 487 après les retraits, moins de 400 maintenant',
         familles.repos.hauteur < 400 && familles.auCrayon.hauteur > familles.repos.hauteur,
         JSON.stringify({ repos: familles.repos.hauteur, auCrayon: familles.auCrayon.hauteur }));

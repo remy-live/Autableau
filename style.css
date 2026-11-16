@@ -15329,8 +15329,24 @@ body.rail-en-place #exit-focus-cross { display: none; }
 
    ET CELA NE VAUT QUE DANS LE RAIL. Couchée sur le tableau, la barre a de la
    place, et rien ne justifie d'y cacher quoi que ce soit.
+
+   LE TEXTE A REJOINT LES TÊTES DE FAMILLE.
+
+   « Quand on a le PDF, la toolbar de droite, j'aimerais qu'elle n'ait pas
+   l'icône texte cachée — pas [seulement] quand on appuie sur le stylo. »
+
+   Il y était rangé comme un cousin du crayon, et c'est une erreur de parenté :
+   écrire un bloc de texte sur un polycopié n'est pas une variante du tracé à
+   main levée, c'est l'autre façon d'annoter, celle qu'on choisit D'ABORD
+   quand on veut que la classe du fond puisse lire. L'atteindre demandait de
+   prendre le crayon pour faire paraître le texte, puis de prendre le texte :
+   deux outils pour un geste, et le premier n'était là que pour ouvrir le
+   tiroir du second.
+
+   LE CACHE BLANC, LUI, RESTE DANS LA FAMILLE : il sert à couvrir une réponse
+   imprimée pour écrire par-dessus, et il vient donc toujours APRÈS qu'on a
+   décidé d'écrire. Trois têtes au lieu de deux, et pas quatre.
    ============================================================ */
-#bar-document.dans-le-rail:not(.famille-du-trace) #doc-outil-texte,
 #bar-document.dans-le-rail:not(.famille-du-trace) #doc-outil-cache,
 #bar-document.dans-le-rail:not(.famille-de-la-taille) #doc-decoupe-forme,
 #bar-document.dans-le-rail:not(.famille-de-la-taille) #doc-rogner { display: none !important; }
