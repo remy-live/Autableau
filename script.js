@@ -28914,7 +28914,52 @@ if (typeof MutationObserver === 'function' && document.body) {
 // l'autre non — et aucun ne sélectionnait ce qu'il venait de poser.
 // Les outils faits pour tamponner en rafale gardent leur tampon armé : on les
 // laisse tranquilles.
+// CE QU'UN OUTIL POSE APPARTIENT À LA PAGE QU'ON REGARDAIT.
+//
+// « J'ai tapé une opération posée sur la page 1 ; quand je suis passé à la
+//   page 2 de mon PDF en plein écran, elle s'est retrouvée sur la page 2. »
+//
+// Elle ne s'est pas déplacée : elle n'appartenait À AUCUNE page, et ce qui
+// n'appartient à aucune page se voit sur toutes. Mesuré : l'opération posée
+// arrive au tableau avec « surPage: null ».
+//
+// L'ENCRE ET LE TEXTE, EUX, LE SAVAIENT DÉJÀ — « noterLaPage » existe depuis
+// longtemps, et le texte l'appelle en se posant. Mais les quatre-vingt-neuf
+// outils poussent leur tampon dans « images » eux-mêmes, chacun chez soi :
+// aucun ne passait par là, et les y envoyer un par un aurait demandé
+// quatre-vingt-neuf corrections dont la prochaine aurait été oubliée.
+//
+// ON LE FAIT DONC AU SEUL ENDROIT QUI LES VOIT TOUS : juste après le geste,
+// là où l'on relève déjà ce qui vient de naître pour le sélectionner. Et
+// AVANT le retour anticipé des outils qui tamponnent en rafale — eux aussi
+// posent sur une page, et ce sont même ceux qu'on utilise le plus sur un
+// polycopié.
+function rattacherALaPage(idAvant) {
+    if (typeof noterLaPage !== 'function') return 0;
+    let combien = 0;
+    const voir = (liste, type) => (liste || []).forEach(o => {
+        if (!o || typeof o.id !== 'number' || o.id < idAvant) return;
+        if (o.surPage) return;                       // déjà rangé avec sa page
+        // Une page ne s'appartient pas à elle-même.
+        if (o.pluginData && o.pluginData.id === 'pdfDoc') return;
+        let cx = o.x, cy = o.y;
+        if (typeof getItemLogicalBounds === 'function') {
+            const b = getItemLogicalBounds(type, o);
+            if (b) { cx = b.bx + b.bw / 2; cy = b.by + b.bh / 2; }
+        }
+        if (!Number.isFinite(cx) || !Number.isFinite(cy)) return;
+        if (noterLaPage(o, cx, cy)) combien++;
+    });
+    voir(images, 'image'); voir(texts, 'text'); voir(htmlPostits, 'htmlPostit');
+    voir(segments, 'segment'); voir(circles, 'circle'); voir(rectangles, 'rectangle');
+    voir(freehands, 'freehand'); voir(curves, 'curve'); voir(polygons, 'polygon');
+    voir(arcs, 'arc');
+    return combien;
+}
+window.rattacherALaPage = rattacherALaPage;
+
 function apresPoseDeTampon(idAvant) {
+    rattacherALaPage(idAvant);
     if (typeof hasPendingStamp === 'function' && hasPendingStamp()) return;
 
     const nouveaux = [];
@@ -32596,11 +32641,44 @@ function documentPorteur(cx, cy) {
 }
 window.documentPorteur = documentPorteur;
 
+// ON CHERCHE LA PAGE, ET NON L'IMAGE DU DESSUS.
+//
+// « J'ai tapé une opération posée sur la page 1 ; quand je suis passé à la
+//   page 2, elle s'est retrouvée sur la page 2. »
+//
+// Elle ne s'était pas déplacée : elle n'appartenait à AUCUNE page, et ce qui
+// n'appartient à aucune page se voit sur toutes. Cette fonction passait par
+// « documentPorteur », qui rend l'image du DESSUS sous un point — ce qui est
+// juste pour savoir sur quel document on écrit, et faux pour savoir sur
+// quelle PAGE on est. Deux raisons, mesurées l'une après l'autre :
+//
+//   — un tampon EST une image, et il vient de naître au-dessus de tout : il
+//     se trouvait LUI-MÊME, concluait « ce n'est pas un polycopié » et
+//     repartait sans page ;
+//   — deux tampons l'un sur l'autre — deux opérations posées au même endroit,
+//     ce qui arrive à chaque exercice — et le second trouvait le PREMIER.
+//
+// On prend donc le polycopié feuilletable le plus haut sous ce point, et ce
+// qui flotte entre les deux ne change rien à l'affaire : une chose posée sur
+// la page 1 est sur la page 1, qu'il y ait une photo au milieu ou non. Les
+// deux causes tombent ensemble : ni le tampon ni son voisin ne sont des
+// polycopiés, donc ni l'un ni l'autre ne se trouve plus sur le chemin.
+//
+// (J'avais ajouté un « sauf » pour qu'un objet ne se trouve pas lui-même.
+// Saboté, il ne faisait tomber aucun contrôle : depuis qu'on ne regarde que
+// les polycopiés, un tampon ne peut plus se prendre pour une page — et le
+// seul objet qui le pourrait, le polycopié lui-même, est déjà écarté à
+// l'autre bout. Deux gardes pour une porte : il en reste une.)
 function pdfFeuilletableSous(cx, cy) {
-    const porteur = documentPorteur(cx, cy);
-    if (!porteur || !porteur.pluginData || porteur.pluginData.id !== 'pdfDoc'
-        || !(porteur.pluginData.pages > 1)) return null;
-    return porteur;
+    let choisi = null;
+    images.forEach(i => {
+        if (!i.pluginData || i.pluginData.id !== 'pdfDoc' || !(i.pluginData.pages > 1)) return;
+        const marge = Math.max(12, Math.min(i.w, i.h) * 0.06);
+        if (cx < i.x - marge || cx > i.x + i.w + marge
+            || cy < i.y - marge || cy > i.y + i.h + marge) return;
+        if (!choisi || (i.z || 0) > (choisi.z || 0)) choisi = i;
+    });
+    return choisi;
 }
 
 // Le milieu de ce qu'on pose désigne la page. Rendue indépendante du réglage
