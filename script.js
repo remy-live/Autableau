@@ -16873,6 +16873,12 @@ function draw() {
                     const prevAlpha = ctx.globalAlpha;
                     if (imgAlpha < 1) ctx.globalAlpha = prevAlpha * imgAlpha;
                     ctx.drawImage(imageCache[obj.src], obj.cx, obj.cy, obj.cw, obj.ch, -obj.w / 2, -obj.h / 2, obj.w, obj.h);
+                    // LE CALQUE NET, POSÉ JUSTE APRÈS LA PAGE. Ce qui vient
+                    // ensuite — l'encre, les textes, les tampons — se dessine
+                    // par-dessus comme avant : on ne s'intercale qu'entre la
+                    // page et ce que le professeur y a mis.
+                    if (obj.pluginData && obj.pluginData.id === 'pdfDoc'
+                        && typeof poserLeCalqueNet === 'function') poserLeCalqueNet(ctx, obj);
                     ctx.globalAlpha = prevAlpha;
                     // Le mot cherché, montré là où il est. Les repères sont en
                     // pixels de la page rendue : on les ramène dans le cadre
@@ -19297,8 +19303,213 @@ window.affinerCeQuOnRegarde = affinerCeQuOnRegarde;
 function demanderAffinageDeLaVue() {
     clearTimeout(affinageDeLaVue);
     affinageDeLaVue = setTimeout(affinerCeQuOnRegarde, 260);
+    // ET LE CALQUE NET SUIT LE MÊME GESTE, MAIS APRÈS LUI.
+    //
+    // L'affinage change l'image de la page, donc la signature du porteur : un
+    // calque calculé avant lui naît périmé et n'est jamais posé. C'était le
+    // cas, mesuré — onze mille soixante pixels de gris avec comme sans
+    // calque, alors que tout le travail avait été fait.
+    //
+    // CE QUI SAUVE, C'EST QUE RENDRE UNE PAGE NE REND PAS LA MAIN : l'affinage
+    // tient tout son rendu dans une seule tâche, et aucun minuteur ne
+    // s'exécute pendant ce temps. Mesuré sur une fiche au zoom 16 : affinage
+    // demandé à 260 ms, image neuve à 598. Un minuteur armé à 420 ms ne part
+    // donc qu'une fois l'affinage fini, et le calque parle de la bonne image.
+    // À 200 ms il partait avant, et c'était tout le défaut.
+    if (typeof demanderLeCalqueNet === 'function') demanderLeCalqueNet();
 }
 window.demanderAffinageDeLaVue = demanderAffinageDeLaVue;
+
+// ===================================================================
+// LE CALQUE NET : CE QU'ON REGARDE, REDESSINÉ À LA DEMANDE
+// ===================================================================
+// « Si un PDF est en vectoriel, est-ce possible de rester toujours propre et
+//   non pixélisé si on zoome très très fort ? »
+//
+// Oui — mais pas en agrandissant la page entière. Mesuré sur une fiche A4 :
+// la garder nette au zoom 8 demanderait 53 mégapixels, soit 212 Mo ; au
+// zoom 16, 212 mégapixels et 847 Mo. Aucune machine de classe ne suit, et
+// c'est pour cela que la page rendue est plafonnée à seize mégapixels. D'où
+// le flou : à partir du zoom 3, un pixel d'image s'étale sur plus d'un pixel
+// d'écran — mesuré 0,8 au zoom 4, 0,4 au zoom 8, 0,05 au zoom 64.
+//
+// CE QUI MARCHE, C'EST DE NE REDESSINER QUE CE QU'ON VOIT. Un PDF vectoriel
+// se rend à n'importe quelle échelle ; ce qui coûte, c'est la SURFACE, et
+// l'écran, lui, ne grandit pas. Mesuré sur la même fiche : 1,26 mégapixel et
+// 5 Mo quel que soit le grossissement, et le rendu prend 4 millisecondes au
+// zoom 4, 17 au zoom 16, 18 au zoom 64. Constant, parce que l'écran l'est.
+//
+// LE CALQUE EST ANCRÉ AU TABLEAU, ET NON À L'ÉCRAN. Sa région est retenue en
+// coordonnées de tableau : glisser la page ne l'invalide donc pas — il reste
+// exactement là où il a été calculé — et l'on n'en refait un que lorsque le
+// regard en sort, ou que le zoom a franchi un cran.
+//
+// ET SEULEMENT À L'ÉCRAN. « À l'export, on sait faire du vectoriel, c'est ce
+// que l'on fait » : l'export ne passe pas par ici et n'a rien à y gagner.
+//
+// UN PDF SCANNÉ N'Y GAGNE RIEN NON PLUS, et c'est dans l'ordre des choses :
+// il n'y a pas de vecteur à redessiner, le grain est dans le fichier.
+const CALQUE_MARGE = 1.25;          // un peu plus large que l'écran
+const CALQUE_PIXELS_MAX = 4e6;      // de quoi couvrir un grand écran, pas plus
+let calqueNet = null;
+let calqueEnCours = false;
+let calqueDemande = null;
+
+function croisementDeRectangles(a, b) {
+    if (!a || !b) return null;
+    const x = Math.max(a.x, b.x), y = Math.max(a.y, b.y);
+    const x2 = Math.min(a.x + a.w, b.x + b.w), y2 = Math.min(a.y + a.h, b.y + b.h);
+    if (x2 <= x || y2 <= y) return null;
+    return { x, y, w: x2 - x, h: y2 - y };
+}
+
+// La part du tableau qu'on voit, en coordonnées du tableau.
+function regionRegardee() {
+    const L = (typeof canvas !== 'undefined' && canvas.width) || window.innerWidth;
+    const H = (typeof canvas !== 'undefined' && canvas.height) || window.innerHeight;
+    return { x: -panX / zoom, y: -panY / zoom, w: L / zoom, h: H / zoom };
+}
+
+// Ce qui identifie le porteur : si l'un de ces nombres change, le calque ne
+// parle plus de la même chose — page tournée, document déplacé, rogné,
+// réaffiné.
+function signatureDuPorteur(o) {
+    const pd = (o && o.pluginData) || {};
+    return [pd.cle, pd.page, o.src, o.x, o.y, o.w, o.h, o.cx, o.cy, o.cw, o.ch].join('|');
+}
+
+function calqueEncoreBon(o) {
+    if (!calqueNet || !calqueNet.toile || !o) return false;
+    if (calqueNet.signature !== signatureDuPorteur(o)) return false;
+    const vue = croisementDeRectangles(regionRegardee(),
+        { x: o.x, y: o.y, w: o.w, h: o.h });
+    if (!vue) return false;
+    const r = calqueNet.rect;
+    const dedans = vue.x >= r.x - 0.5 && vue.y >= r.y - 0.5
+        && vue.x + vue.w <= r.x + r.w + 0.5 && vue.y + vue.h <= r.y + r.h + 0.5;
+    if (!dedans) return false;
+    // Et le zoom n'a pas franchi un cran : au-delà, le calque s'étirerait à
+    // son tour, et l'on aurait déplacé le flou sans le retirer.
+    return zoom <= calqueNet.zoom * 1.3;
+}
+
+// L'IMAGE DE PAGE SUFFIT-ELLE ? Un pixel d'image par pixel d'écran, et il n'y
+// a rien à gagner : le calque ne se calcule que lorsqu'on étire.
+function laPageEstDejaNette(o) {
+    if (!o || !o.cw || !o.w) return true;
+    return (o.cw / (o.w * zoom)) >= 1;
+}
+
+async function calculerLeCalqueNet(o) {
+    if (calqueEnCours) return false;
+    const pd = o && o.pluginData;
+    if (!pd || !pd.cle || !pd.page) return false;
+    // UNE PAGE DROITE SEULEMENT. Tournée ou retournée, sa région visible ne
+    // se dit plus en rectangles du tableau, et un calque posé de travers est
+    // pire qu'un calque absent. C'est le cas rare ; il garde l'ancien flou.
+    if (o.angle || o.retourneH || o.retourneV) return false;
+    if (typeof documentsPdf === 'undefined') return false;
+    const d = documentsPdf.get(pd.cle);
+    if (!d || !d.doc) return false;
+    const img = imageCache[o.src];
+    if (!img || !img.naturalWidth) return false;
+    if (laPageEstDejaNette(o)) { calqueNet = null; return false; }
+
+    // UN SEUL INSTANT. Rendre une page prend des millisecondes, et le
+    // professeur peut tourner sa page ou zoomer pendant ce temps. Tout ce qui
+    // suit parle donc de l'instant où le calque a été demandé — y compris le
+    // grossissement, qu'on lisait auparavant à la FIN du rendu : le calque
+    // était alors étiqueté d'un zoom qui n'était pas celui où il avait été
+    // calculé, et il se laissait poser sur une vue qu'il ne décrivait plus.
+    const signatureAuDepart = signatureDuPorteur(o);
+    const zoomAuDepart = zoom;
+
+    const cadre = { x: o.x, y: o.y, w: o.w, h: o.h };
+    const vue = croisementDeRectangles(regionRegardee(), cadre);
+    if (!vue) return false;
+    // On prend un peu plus large que le regard : glisser de quelques pixels
+    // ne doit pas tout redemander.
+    const dx = vue.w * (CALQUE_MARGE - 1) / 2, dy = vue.h * (CALQUE_MARGE - 1) / 2;
+    const voulu = croisementDeRectangles(
+        { x: vue.x - dx, y: vue.y - dy, w: vue.w + 2 * dx, h: vue.h + 2 * dy }, cadre) || vue;
+
+    const page = await d.doc.getPage(pd.page);
+    const nature = page.getViewport({ scale: 1 });
+    if (!nature.width) return false;
+    const echelleBase = img.naturalWidth / nature.width;   // pixels d'image par point
+
+    let largeur = Math.round(voulu.w * zoomAuDepart), hauteur = Math.round(voulu.h * zoomAuDepart);
+    if (largeur < 8 || hauteur < 8) return false;
+    const trop = Math.sqrt((largeur * hauteur) / CALQUE_PIXELS_MAX);
+    if (trop > 1) { largeur = Math.round(largeur / trop); hauteur = Math.round(hauteur / trop); }
+
+    // L'ÉCHELLE DE PDF.JS SE DIT EN PIXELS PAR POINT DE PAGE, et l'on part de
+    // ce qu'on veut : tant de pixels pour tant d'unités de tableau.
+    //
+    //   une unité de tableau  =  (cw / w) pixels de l'image de page
+    //                         =  (cw / w) / echelleBase points de page
+    //
+    // d'où l'échelle = (pixels voulus par unité) ÷ (points par unité).
+    const pointsParUnite = (o.cw / o.w) / echelleBase;
+    if (!pointsParUnite) return false;
+    const echelle = (largeur / voulu.w) / pointsParUnite;
+    // Le coin du calque, exprimé en pixels de ce rendu.
+    const sx = o.cx + (voulu.x - o.x) * (o.cw / o.w);      // pixels de l'image de page
+    const sy = o.cy + (voulu.y - o.y) * (o.ch / o.h);
+    const x0 = (sx / echelleBase) * echelle;               // pixels du rendu
+    const y0 = (sy / echelleBase) * echelle;
+
+    calqueEnCours = true;
+    try {
+        const vp = page.getViewport({ scale: echelle });
+        const c = document.createElement('canvas');
+        c.width = largeur; c.height = hauteur;
+        const g = c.getContext('2d');
+        g.fillStyle = '#ffffff'; g.fillRect(0, 0, largeur, hauteur);
+        g.translate(-x0, -y0);
+        await page.render({ canvasContext: g, viewport: vp }).promise;
+        // La page a pu tourner, ou le document bouger, pendant le calcul.
+        if (signatureDuPorteur(o) !== signatureAuDepart) return false;
+        calqueNet = {
+            signature: signatureAuDepart, rect: voulu, zoom: zoomAuDepart,
+            toile: c, largeur, hauteur, echelle
+        };
+        if (typeof draw === 'function') draw();
+        return true;
+    } finally {
+        calqueEnCours = false;
+    }
+}
+window.calculerLeCalqueNet = calculerLeCalqueNet;
+
+// On ne recalcule pas à chaque cran de molette : on attend que le geste se
+// pose, comme pour l'affinage de la page.
+function demanderLeCalqueNet(delai) {
+    clearTimeout(calqueDemande);
+    calqueDemande = setTimeout(() => {
+        // UN CALCUL EN COURS NE MANGE PAS LA DEMANDE : on repasse plus tard.
+        // Sans cela, zoomer pendant qu'un calque se rend laissait l'ancien en
+        // place — refusé au dessin, donc sans effet, mais jamais remplacé.
+        if (calqueEnCours) { demanderLeCalqueNet(120); return; }
+        const o = (typeof pagesSousLesYeux === 'function') ? pagesSousLesYeux()[0] : null;
+        if (!o) { calqueNet = null; return; }
+        if (calqueEncoreBon(o)) return;
+        calculerLeCalqueNet(o).catch(() => { /* on gardera la page telle quelle */ });
+    }, delai === undefined ? 420 : delai);
+}
+window.demanderLeCalqueNet = demanderLeCalqueNet;
+
+// Posé dans le repère de l'image, juste après elle : l'encre du professeur,
+// dessinée plus tard, reste par-dessus.
+function poserLeCalqueNet(ctx2, o) {
+    if (!calqueNet || !calqueNet.toile) return false;
+    if (!calqueEncoreBon(o)) return false;
+    const r = calqueNet.rect;
+    ctx2.drawImage(calqueNet.toile,
+        -o.w / 2 + (r.x - o.x), -o.h / 2 + (r.y - o.y), r.w, r.h);
+    return true;
+}
+window.poserLeCalqueNet = poserLeCalqueNet;
 
 // La suivante et la précédente, sans bloquer : on les aura sous la main.
 function preparerLesVoisines(d, numero, total) {
