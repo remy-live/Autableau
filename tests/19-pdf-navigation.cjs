@@ -829,7 +829,20 @@ module.exports = async function (browser) {
         }
         const r = z => ({ g: Math.round(z.x), d: Math.round(z.x + z.l),
                           h: Math.round(z.y), b: Math.round(z.y + z.h) });
-        return { encre: { g: x0, d: x1, h: y0, b: y1 }, ligne: r(ligne), debut: r(debut), fin: r(fin) };
+        // LES DEUX MESURES NE SONT PAS DANS LE MÊME REPÈRE, et il faut le dire.
+        // Les repères du texte sont pris à « currentPdfQuality », une fois pour
+        // toutes ; l'encre, elle, est mesurée sur l'image RENDUE, dont
+        // l'échelle monte à chaque affinage. Les deux coïncidaient tant que la
+        // page restait à son premier rendu ; depuis que le dessin demande
+        // l'affinage dès que la vue bouge, elles sont séparées d'un facteur —
+        // mesuré 1,41, exactement le rapport de l'affinage. On ramène donc
+        // l'encre dans le repère des mots avant de les comparer.
+        const nature = (await d.doc.getPage(2)).getViewport({ scale: 1 });
+        const k = im.naturalWidth / (nature.width * currentPdfQuality);
+        const ramene = v => Math.round(v / k);
+        return { encre: { g: ramene(x0), d: ramene(x1), h: ramene(y0), b: ramene(y1) },
+                 ligne: r(ligne), debut: r(debut), fin: r(fin),
+                 echelleDeLEncre: +k.toFixed(3) };
     });
     r.verifie('la bande commence au haut des lettres, pas au-dessus',
         Math.abs(colle.ligne.h - colle.encre.h) <= 4, JSON.stringify(colle));

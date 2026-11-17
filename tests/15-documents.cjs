@@ -2237,8 +2237,17 @@ module.exports = async function (browser) {
     r.verifie('le coin agrandit sans déformer',
         agrandi.w > doc.w + 50 && Math.abs(agrandi.w / agrandi.h - doc.w / doc.h) < 0.01,
         `${doc.w}x${doc.h} → ${agrandi.w}x${agrandi.h}`);
-    r.egal('et il ne rogne rien au passage',
-        { cw: agrandi.cw, ch: agrandi.ch }, { cw: doc.cw, ch: doc.ch });
+    // LE ROGNAGE NE SE MESURE PAS EN PIXELS DE L'IMAGE RENDUE. Ils changent
+    // d'eux-mêmes quand la page s'affine — 1412 × 1059 devient 1652 × 1239,
+    // c'est le MÊME rectangle rendu plus fin — et depuis que le dessin demande
+    // l'affinage dès que la vue bouge, cela arrive ici. Ce qui dit qu'on n'a
+    // rien coupé, c'est que le cadrage part du coin et garde la forme.
+    r.verifie('et il ne rogne rien au passage',
+        agrandi.cx === 0 && agrandi.cy === 0
+        && Math.abs(agrandi.cw / agrandi.ch - doc.cw / doc.ch) < 0.01,
+        JSON.stringify({ avant: { cw: doc.cw, ch: doc.ch },
+                         apres: { cx: agrandi.cx, cy: agrandi.cy,
+                                  cw: agrandi.cw, ch: agrandi.ch } }));
 
     doc = await poserLeDoc();
     await tirerLaPoignee(doc.x + doc.w, doc.y + doc.h / 2, 200, 0);

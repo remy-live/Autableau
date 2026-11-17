@@ -16625,6 +16625,10 @@ function dessinerLesCadresDeSelection(ctx, lw) {
 }
 window.dessinerLesCadresDeSelection = dessinerLesCadresDeSelection;
 
+// LA VUE QU'ON A DESSINÉE LA DERNIÈRE FOIS. Elle sert à savoir, à la fin du
+// dessin, si le tableau a bougé sous les yeux du professeur.
+let vueDessinee = { panX: null, panY: null, zoom: null };
+
 function draw() {
     // La place à côté se referme d'elle-même si son occupant a disparu. Ici
     // parce que tous les chemins passent par là, et avant qu'un seul pixel ne
@@ -18225,6 +18229,24 @@ function draw() {
         // La fonction ne fait rien si rien ne clignote : c'est ce qui permet
         // de l'appeler à chaque image sans rien coûter.
         if (typeof reveillerLeClignotement === 'function') reveillerLeClignotement();
+        // ET CE QU'ON REGARDE SE REFAIT NET — ICI, ET NULLE PART AILLEURS.
+        //
+        // « Hyper pixellisé ! » à 1344 %, et la page elle-même pas même
+        // affinée : le pincement à deux doigts changeait le zoom, redessinait,
+        // et ne prévenait personne. Ni l'affinage de la page, ni le calque net.
+        //
+        // Les chemins qui changent la vue sont une douzaine — molette, curseur,
+        // pincement, « tout voir », « zoomer sur cet objet », rechargement d'un
+        // tableau, retour au document, présentation — et chacun devait y penser
+        // de son côté. C'était une liste à tenir à jour, donc une liste à
+        // oublier. Le dessin, lui, les traverse tous ; et comme on ne prévient
+        // que si le cadrage a VRAIMENT changé, écrire au crayon pendant une
+        // minute ne repousse rien.
+        if (panX !== vueDessinee.panX || panY !== vueDessinee.panY
+            || zoom !== vueDessinee.zoom) {
+            vueDessinee = { panX: panX, panY: panY, zoom: zoom };
+            if (typeof demanderAffinageDeLaVue === 'function') demanderAffinageDeLaVue();
+        }
     } // Fin du bloc finally
 } // Fin de la fonction draw()
 

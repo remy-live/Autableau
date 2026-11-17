@@ -572,7 +572,73 @@ module.exports = async function (browser) {
     await neuf.context.close();
 
     // ------------------------------------------------------------------
-    // 14. SUR UN GRAND ÉCRAN, LE PLAFOND SERT.
+    // 14. QUEL QUE SOIT LE GESTE QUI CHANGE LA VUE.
+    //
+    //     « Hyper pixellisé ! » — à 1344 %, et la page elle-même pas même
+    //     affinée. Le pincement à deux doigts changeait le zoom, redessinait,
+    //     et ne prévenait personne : ni l'affinage de la page, ni le calque.
+    //
+    //     Les chemins qui changent la vue sont une douzaine, et chacun devait
+    //     y penser de son côté. Le dessin, lui, les traverse tous.
+    // ------------------------------------------------------------------
+    const auPincement = await tableauNeuf();
+    const pince = await auPincement.page.evaluate(async () => {
+        const c = document.getElementById('board');
+        const ev = (type, id, x, y) => c.dispatchEvent(new PointerEvent(type, {
+            pointerId: id, pointerType: 'touch', isPrimary: id === 1,
+            clientX: x, clientY: y, bubbles: true, cancelable: true, buttons: 1
+        }));
+        const o = images.find(i => (i.pluginData || {}).id === 'pdfDoc');
+        const zoomAvant = zoom;
+        // deux doigts qui s'écartent, par petits pas, comme une main
+        ev('pointerdown', 1, 650, 420); ev('pointerdown', 2, 750, 480);
+        let e = 0;
+        for (let k = 1; k <= 14; k++) {
+            e = k * 30;
+            ev('pointermove', 1, 650 - e, 420 - e * 0.6);
+            ev('pointermove', 2, 750 + e, 480 + e * 0.6);
+            await new Promise(r => setTimeout(r, 16));
+        }
+        ev('pointerup', 1, 650 - e, 420 - e * 0.6);
+        ev('pointerup', 2, 750 + e, 480 + e * 0.6);
+        const zoomApres = zoom, finesseAvant = +(o.cw / o.w).toFixed(2);
+        await new Promise(r => setTimeout(r, 2600));
+        return { zoomAvant, zoomApres: +zoomApres.toFixed(2), finesseAvant,
+                 finesseApres: +(o.cw / o.w).toFixed(2),
+                 calque: !!calqueNet, pose: calqueNet ? calqueEncoreBon(o) : false };
+    });
+    r.verifie('deux doigts qui s\'écartent agrandissent bel et bien le tableau',
+        pince.zoomApres > pince.zoomAvant * 4, JSON.stringify(pince));
+    r.verifie('LA PAGE S\'AFFINE APRÈS UN PINCEMENT',
+        pince.finesseApres > pince.finesseAvant,
+        JSON.stringify(pince) + ' — restée telle quelle quand le pincement ne prévenait personne');
+    r.verifie('ET LE CALQUE NET EST LÀ, POSÉ', pince.calque === true && pince.pose === true,
+        JSON.stringify(pince));
+    // ET ÉCRIRE NE REPOUSSE RIEN. On ne prévient que si le cadrage a vraiment
+    // changé : sans cela, le clignotement du curseur et chaque trait de crayon
+    // rearmeraient le minuteur sans fin, et la page ne s'affinerait jamais.
+    const enEcrivant = await auPincement.page.evaluate(async () => {
+        const avant = zoom;
+        draw();                               // la vue est à jour
+        clearTimeout(affinageDeLaVue);
+        affinageVoulu = false;
+        for (let i = 0; i < 12; i++) draw();  // on dessine sans bouger la vue
+        const apresDessins = affinageVoulu;
+        zoom = avant * 1.05; draw();          // et maintenant la vue bouge
+        const apresMouvement = affinageVoulu;
+        zoom = avant; draw();
+        return { apresDessins, apresMouvement };
+    });
+    r.egal('redessiner sans bouger la vue ne redemande pas d\'affinage',
+        enEcrivant.apresDessins, false, JSON.stringify(enEcrivant));
+    r.egal('mais le moindre changement de cadrage, si',
+        enEcrivant.apresMouvement, true, JSON.stringify(enEcrivant));
+    r.verifie('aucune erreur au pincement', auPincement.erreurs.length === 0,
+        auPincement.erreurs.join(' | '));
+    await auPincement.context.close();
+
+    // ------------------------------------------------------------------
+    // 15. SUR UN GRAND ÉCRAN, LE PLAFOND SERT.
     //
     //     Un vidéoprojecteur de classe monte à 2560 × 1440 : l'écran et son
     //     quart de marge font alors 5,8 mégapixels, et rendre cela à chaque

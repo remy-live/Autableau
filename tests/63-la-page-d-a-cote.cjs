@@ -131,7 +131,18 @@ module.exports = async function (browser) {
             formeDuCadre, formeDeLaPage,
             formeDuVoisin: v ? v.w / v.h : null,
             formeDeSonImage: v ? v.cw / v.ch : null,
-            entiere: v ? (v.cx === 0 && v.cy === 0 && v.ch > doc.ch * 1.5) : null
+            // ÊTRE ENTIÈRE SE DIT PAR RAPPORT À SON PROPRE RENDU, et non en
+            // comparant des pixels à ceux de la voisine : les deux pages ne
+            // sont pas forcément affinées au même moment, et un affinage
+            // multiplie ces nombres sans rien couper du tout.
+            entiere: v ? (v.cx === 0 && v.cy === 0
+                && !!imageCache[v.src]
+                && Math.abs(v.ch - imageCache[v.src].naturalHeight) < 2
+                && doc.ch < imageCache[doc.src].naturalHeight * 0.75) : null,
+            partDuVoisin: v && imageCache[v.src]
+                ? +(v.ch / imageCache[v.src].naturalHeight).toFixed(3) : null,
+            partDuDoc: imageCache[doc.src]
+                ? +(doc.ch / imageCache[doc.src].naturalHeight).toFixed(3) : null
         };
     });
     r.verifie('le cadre rogné n\'a plus la forme de la page',
