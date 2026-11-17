@@ -19267,6 +19267,12 @@ window.demanderAffinage = demanderAffinage;
 // ---------------------------------------------------------------
 const PAGES_AFFINEES_A_LA_FOIS = 4;   // au-delà, on ferait ramer pour rien
 let affinageDeLaVue = null;
+let affinageVoulu = false;
+// CE QUE COÛTE UN AFFINAGE, mesuré à froid sur une fiche A4 : 109 millisecondes
+// jusqu'à quatre fois la page, puis 296 à 367 dès qu'il monte au plafond des
+// seize mégapixels — et pendant ce temps le fil principal est gelé, car rendre
+// une page ne rend pas la main. C'est le « pas hyper fluide ».
+const ATTENTE_SI_LE_CALQUE_TIENT = 600;
 
 // Les pages visibles, une par rendu partagé, représentées par l'objet qui
 // réclame le plus de finesse : c'est lui qui tire les autres avec lui.
@@ -19292,6 +19298,7 @@ function pagesSousLesYeux() {
 window.pagesSousLesYeux = pagesSousLesYeux;
 
 function affinerCeQuOnRegarde() {
+    affinageVoulu = false;
     const vues = pagesSousLesYeux();
     vues.forEach(o => {
         affinerLaPage(o).catch(() => { /* on gardera la page telle quelle */ });
@@ -19300,22 +19307,36 @@ function affinerCeQuOnRegarde() {
 }
 window.affinerCeQuOnRegarde = affinerCeQuOnRegarde;
 
+// L'AFFINAGE LAISSE PASSER LE CALQUE, ET ATTEND SON TOUR.
+//
+// Une fois le calque posé, la page affinée ne sert plus à l'écran : elle n'est
+// que le filet pour l'instant où l'on sort du calque. Rien ne justifie donc de
+// geler trois cents millisecondes juste après le geste — on repousse, et si le
+// professeur bouge encore, le geste suivant repousse à son tour. Il ne paie
+// l'affinage que lorsqu'il s'arrête.
+//
+// ON NE L'ANNULE PAS POUR AUTANT, et c'est volontaire : glisser vite et loin
+// sort du calque plus vite qu'on n'en calcule un, et c'est là que la page
+// affinée tient le coup.
+function repousserLAffinageDeLaVue() {
+    if (!affinageVoulu) return false;
+    clearTimeout(affinageDeLaVue);
+    affinageDeLaVue = setTimeout(affinerCeQuOnRegarde, ATTENTE_SI_LE_CALQUE_TIENT);
+    return true;
+}
+window.repousserLAffinageDeLaVue = repousserLAffinageDeLaVue;
+
 function demanderAffinageDeLaVue() {
     clearTimeout(affinageDeLaVue);
+    affinageVoulu = true;
     affinageDeLaVue = setTimeout(affinerCeQuOnRegarde, 260);
-    // ET LE CALQUE NET SUIT LE MÊME GESTE, MAIS APRÈS LUI.
+    // ET LE CALQUE NET SUIT LE MÊME GESTE, LE PREMIER.
     //
-    // L'affinage change l'image de la page, donc la signature du porteur : un
-    // calque calculé avant lui naît périmé et n'est jamais posé. C'était le
-    // cas, mesuré — onze mille soixante pixels de gris avec comme sans
-    // calque, alors que tout le travail avait été fait.
-    //
-    // CE QUI SAUVE, C'EST QUE RENDRE UNE PAGE NE REND PAS LA MAIN : l'affinage
-    // tient tout son rendu dans une seule tâche, et aucun minuteur ne
-    // s'exécute pendant ce temps. Mesuré sur une fiche au zoom 16 : affinage
-    // demandé à 260 ms, image neuve à 598. Un minuteur armé à 420 ms ne part
-    // donc qu'une fois l'affinage fini, et le calque parle de la bonne image.
-    // À 200 ms il partait avant, et c'était tout le défaut.
+    // Il ne dépend plus de l'image de page (voir « signatureDuPorteur ») : il
+    // n'a donc aucune raison d'attendre l'affinage, et c'est lui que le
+    // professeur voit. Il passe donc devant — et comme il coûte la surface de
+    // l'écran, il arrive en une poignée de millisecondes là où l'affinage de
+    // la page en gèle presque trois cents.
     if (typeof demanderLeCalqueNet === 'function') demanderLeCalqueNet();
 }
 window.demanderAffinageDeLaVue = demanderAffinageDeLaVue;
@@ -19370,17 +19391,48 @@ function regionRegardee() {
     return { x: -panX / zoom, y: -panY / zoom, w: L / zoom, h: H / zoom };
 }
 
-// Ce qui identifie le porteur : si l'un de ces nombres change, le calque ne
-// parle plus de la même chose — page tournée, document déplacé, rogné,
-// réaffiné.
+// CE QUI IDENTIFIE LE PORTEUR — ET CE QUI NE L'IDENTIFIE PAS.
+//
+// La première version y mettait « src », « cx », « cy », « cw », « ch » : les
+// pixels de l'image de page. C'était une erreur, et elle se voyait à l'œil nu.
+// Un affinage multiplie tous ces nombres d'un coup SANS RIEN CHANGER à ce qui
+// est montré, et le calque, lui, est rendu depuis les VECTEURS du PDF — il ne
+// doit rien à l'image de page. Il se faisait donc jeter à chaque affinage, et
+// il fallait attendre ce dernier pour en calculer un qui tienne : mesuré 623
+// millisecondes avant l'image neuve, 699 avant le calque. « C'est pas hyper
+// fluide, on voit que c'est flou puis après lissé. »
+//
+// Ne restent donc que la page montrée et sa place au tableau.
 function signatureDuPorteur(o) {
     const pd = (o && o.pluginData) || {};
-    return [pd.cle, pd.page, o.src, o.x, o.y, o.w, o.h, o.cx, o.cy, o.cw, o.ch].join('|');
+    return [pd.cle, pd.page, o.x, o.y, o.w, o.h, o.angle || 0,
+        o.retourneH ? 1 : 0, o.retourneV ? 1 : 0].join('|');
+}
+
+// ET LE ROGNAGE, QUI COMPTE LUI AUSSI, mais se dit en fractions de la page et
+// non en pixels de son image : combien de page tient dans une unité de
+// tableau, et où le cadre commence dedans. Deux nombres que l'affinage laisse
+// intacts, et qu'un rognage change.
+function repereDuPorteur(o) {
+    const img = (typeof imageCache !== 'undefined') ? imageCache[o.src] : null;
+    if (!img || !img.naturalWidth || !o.w) return null;
+    const u = img.naturalWidth;
+    return { parUnite: (o.cw / o.w) / u, debutX: o.cx / u, debutY: o.cy / u };
+}
+
+function memeRepere(a2, b2) {
+    // L'image neuve n'arrive jamais à l'échelle exactement voulue : on compare
+    // donc à un cheveu près, et non au nombre flottant exact.
+    if (!a2 || !b2) return true;          // sans image, on ne peut rien dire
+    const pres = (x, y) => Math.abs(x - y) <= Math.max(1e-6, Math.abs(x) * 1e-3);
+    return pres(a2.parUnite, b2.parUnite) && pres(a2.debutX, b2.debutX)
+        && pres(a2.debutY, b2.debutY);
 }
 
 function calqueEncoreBon(o) {
     if (!calqueNet || !calqueNet.toile || !o) return false;
     if (calqueNet.signature !== signatureDuPorteur(o)) return false;
+    if (!memeRepere(calqueNet.repere, repereDuPorteur(o))) return false;
     const vue = croisementDeRectangles(regionRegardee(),
         { x: o.x, y: o.y, w: o.w, h: o.h });
     if (!vue) return false;
@@ -19422,6 +19474,7 @@ async function calculerLeCalqueNet(o) {
     // était alors étiqueté d'un zoom qui n'était pas celui où il avait été
     // calculé, et il se laissait poser sur une vue qu'il ne décrivait plus.
     const signatureAuDepart = signatureDuPorteur(o);
+    const repereAuDepart = repereDuPorteur(o);
     const zoomAuDepart = zoom;
 
     const cadre = { x: o.x, y: o.y, w: o.w, h: o.h };
@@ -19470,11 +19523,15 @@ async function calculerLeCalqueNet(o) {
         await page.render({ canvasContext: g, viewport: vp }).promise;
         // La page a pu tourner, ou le document bouger, pendant le calcul.
         if (signatureDuPorteur(o) !== signatureAuDepart) return false;
+        if (!memeRepere(repereAuDepart, repereDuPorteur(o))) return false;
         calqueNet = {
-            signature: signatureAuDepart, rect: voulu, zoom: zoomAuDepart,
+            signature: signatureAuDepart, repere: repereAuDepart,
+            rect: voulu, zoom: zoomAuDepart,
             toile: c, largeur, hauteur, echelle
         };
         if (typeof draw === 'function') draw();
+        // LE RELAIS EST PRIS : l'affinage de la page peut attendre.
+        if (typeof repousserLAffinageDeLaVue === 'function') repousserLAffinageDeLaVue();
         return true;
     } finally {
         calqueEnCours = false;
@@ -19483,7 +19540,9 @@ async function calculerLeCalqueNet(o) {
 window.calculerLeCalqueNet = calculerLeCalqueNet;
 
 // On ne recalcule pas à chaque cran de molette : on attend que le geste se
-// pose, comme pour l'affinage de la page.
+// pose. Mais à peine — soixante millisecondes, contre deux cent soixante pour
+// l'affinage de la page : c'est le calque qu'on voit, et il ne coûte que la
+// surface de l'écran.
 function demanderLeCalqueNet(delai) {
     clearTimeout(calqueDemande);
     calqueDemande = setTimeout(() => {
@@ -19495,7 +19554,7 @@ function demanderLeCalqueNet(delai) {
         if (!o) { calqueNet = null; return; }
         if (calqueEncoreBon(o)) return;
         calculerLeCalqueNet(o).catch(() => { /* on gardera la page telle quelle */ });
-    }, delai === undefined ? 420 : delai);
+    }, delai === undefined ? 60 : delai);
 }
 window.demanderLeCalqueNet = demanderLeCalqueNet;
 

@@ -14,13 +14,18 @@
 // grandit pas. Le calque coûte la surface de l'écran, et rien de plus, quel
 // que soit le grossissement.
 //
-// ET IL A FALLU LE METTRE DANS LE BON ORDRE. L'affinage de la page tourne lui
-// aussi quand le geste se pose, et il change l'image du document : un calque
-// calculé AVANT lui naissait périmé et n'était jamais posé. Tout le travail
-// était fait, et le flou restait entier — mesuré 11 060 pixels de gris avant
-// comme après. Le calque attend donc 420 millisecondes là où l'affinage en
-// attend 260 : rendre une page ne rend pas la main, le rendu tient toute sa
-// tâche, et un minuteur armé plus tard ne part qu'une fois l'affinage fini.
+// ET IL PASSE DEVANT L'AFFINAGE DE LA PAGE. « C'est pas hyper fluide, on voit
+// que c'est flou puis après lissé. » Deux causes, mesurées : le calque
+// n'arrivait qu'à 699 millisecondes — il attendait l'affinage, parce que sa
+// signature comptait les pixels de l'image de page — et l'affinage gelait le
+// fil principal 292 millisecondes juste après le geste, car rendre une page ne
+// rend pas la main.
+//
+// Le calque ne doit rien à l'image de page : il vient des vecteurs. Il arrive
+// donc maintenant en 113 millisecondes, et c'est l'AFFINAGE qui attend son
+// tour — il ne sert plus que de filet pour l'instant où l'on sort du calque.
+// Un seul gel reste, à 729 millisecondes, c'est-à-dire quand le professeur
+// s'est arrêté ; et s'il bouge encore, le geste suivant le repousse.
 const { creerRapport, ouvrirApp, tableauVierge, fichePdf } = require('./harness.cjs');
 
 module.exports = async function (browser) {
@@ -37,6 +42,24 @@ module.exports = async function (browser) {
         await new Promise(k => setTimeout(k, 1400));
     }, { octets: Array.from(fichePdf()) });
     await page.waitForTimeout(700);
+
+    // UN TABLEAU NEUF, AVEC SA FICHE ENCORE GROSSIÈRE. Deux contrôles en ont
+    // besoin : une page déjà affinée jusqu'au plafond n'a plus rien à affiner,
+    // donc plus rien à mesurer.
+    const tableauNeuf = async () => {
+        const n = await ouvrirApp(browser, { viewport: { width: 1400, height: 900 } });
+        await tableauVierge(n.page);
+        await n.page.waitForFunction(() => typeof poserPdfFeuilletable === 'function',
+            { timeout: 20000 });
+        await n.page.evaluate(async ({ octets }) => {
+            panX = 0; panY = 0; zoom = 1; images.length = 0;
+            await poserPdfFeuilletable(new File([new Uint8Array(octets)], 'fiche.pdf',
+                { type: 'application/pdf' }));
+            await new Promise(k => setTimeout(k, 1400));
+        }, { octets: Array.from(fichePdf()) });
+        await n.page.waitForTimeout(700);
+        return n;
+    };
 
     const laPage = () => page.evaluate(() =>
         images.some(i => (i.pluginData || {}).id === 'pdfDoc'));
@@ -187,25 +210,93 @@ module.exports = async function (browser) {
     r.egal('et plus au-delà d\'un cran', apresZoom.apres, false, JSON.stringify(apresZoom));
 
     // ------------------------------------------------------------------
-    // 6. TOURNER LA PAGE LE PÉRIME.
+    // 6. TOURNER LA PAGE LE PÉRIME — AFFINER LA PAGE, NON.
     //
-    //    Un calque de la page 1 posé sur la page 2, c'est le texte d'une
-    //    autre page collé sur celle qu'on lit.
+    //    « C'est pas hyper fluide, on voit que c'est flou puis après lissé. »
+    //
+    //    C'était là. Le calque est rendu depuis les VECTEURS du PDF : il ne
+    //    doit rien à l'image de page. Mais sa signature comptait les pixels de
+    //    cette image, qu'un affinage multiplie tous d'un coup sans rien changer
+    //    à ce qui est montré — il se faisait donc jeter à chaque affinage, et
+    //    il fallait attendre ce dernier pour en calculer un qui tienne. Mesuré
+    //    623 millisecondes avant l'image neuve, 699 avant le calque ; 113
+    //    maintenant.
+    //
+    //    CE QUI COMPTE VRAIMENT : la page montrée, la place du document au
+    //    tableau, et le rognage — mais le rognage dit en FRACTIONS de la page,
+    //    non en pixels de son image.
     // ------------------------------------------------------------------
     await allerVoir(0.125, 0.7667, 16);
     await poserLeGeste();
-    const apresLaPage = await page.evaluate(async () => {
+    const changerDePage = await page.evaluate(() => {
         const o = images.find(i => (i.pluginData || {}).id === 'pdfDoc');
         const avant = calqueEncoreBon(o);
-        const pages = (o.pluginData || {}).pages || 1;
-        if (pages > 1) await allerALaPage(o, 2);
-        else { o.src = o.src + '#autre'; }   // la fiche n'a qu'une page : on change son image
-        return { avant, apres: calqueEncoreBon(o), pages };
+        const garde = o.pluginData.page;
+        o.pluginData.page = garde + 1;            // comme si l'on tournait la page
+        const apres = calqueEncoreBon(o);
+        o.pluginData.page = garde;
+        return { avant, apres };
     });
-    r.verifie('le calque vaut pour la page où il est né', apresLaPage.avant === true,
-        JSON.stringify(apresLaPage));
-    r.egal('et plus quand l\'image du document change', apresLaPage.apres, false,
-        JSON.stringify(apresLaPage));
+    r.verifie('le calque vaut pour la page où il est né', changerDePage.avant === true,
+        JSON.stringify(changerDePage));
+    r.egal('et pas pour la page suivante', changerDePage.apres, false,
+        JSON.stringify(changerDePage));
+
+    // L'AFFINAGE POUR DE VRAI : on calcule un calque sur une page encore
+    // grossière, puis on laisse la page s'affiner sous lui.
+    const surSaFiche = await tableauNeuf();
+    const apresAffinage = await surSaFiche.page.evaluate(async () => {
+        const o = images.find(i => (i.pluginData || {}).id === 'pdfDoc');
+        const g = document.getElementById('board').getContext('2d');
+        const grisDe = () => {
+            const d = g.getImageData(350, 200, 700, 500).data;
+            let gris = 0;
+            for (let i = 0; i < d.length; i += 4) {
+                const v = d[i];
+                if (v >= 30 && v <= 225) gris++;
+            }
+            return gris;
+        };
+        zoom = 16;
+        panX = -(o.x + o.w * 0.125) * zoom + canvas.width / 2;
+        panY = -(o.y + o.h * 0.7667) * zoom + canvas.height / 2;
+        draw();
+        const fait = await calculerLeCalqueNet(o);
+        const avant = { bon: calqueEncoreBon(o), gris: grisDe(),
+                        finesse: +(o.cw / o.w).toFixed(2) };
+        const affine = await affinerLaPage(o);
+        draw();
+        return { fait, affine, avant, bon: calqueEncoreBon(o), gris: grisDe(),
+                 finesse: +(o.cw / o.w).toFixed(2) };
+    });
+    r.verifie('la page s\'affine bel et bien sous le calque',
+        apresAffinage.affine === true
+        && apresAffinage.finesse > apresAffinage.avant.finesse,
+        JSON.stringify(apresAffinage));
+    r.verifie('ET LE CALQUE Y SURVIT', apresAffinage.bon === true,
+        JSON.stringify(apresAffinage) + ' — jeté quand sa signature comptait les pixels de l\'image');
+    r.verifie('le texte reste net de part en part',
+        apresAffinage.gris < apresAffinage.avant.gris * 1.1,
+        'avant ' + apresAffinage.avant.gris + ' gris, après ' + apresAffinage.gris);
+    r.verifie('aucune erreur pendant l\'affinage', surSaFiche.erreurs.length === 0,
+        surSaFiche.erreurs.join(' | '));
+    await surSaFiche.context.close();
+
+    // LE ROGNAGE, LUI, LE PÉRIME : le cadre ne montre plus la même part de la
+    // page, et le calque y serait décalé.
+    const apresRognage = await page.evaluate(() => {
+        const o = images.find(i => (i.pluginData || {}).id === 'pdfDoc');
+        const avant = calqueEncoreBon(o);
+        const garde = { cx: o.cx, cw: o.cw };
+        o.cx = o.cx + o.cw * 0.1; o.cw = o.cw * 0.8;
+        const apres = calqueEncoreBon(o);
+        o.cx = garde.cx; o.cw = garde.cw;
+        return { avant, apres };
+    });
+    r.verifie('le calque vaut pour le cadrage où il est né',
+        apresRognage.avant === true, JSON.stringify(apresRognage));
+    r.egal('et plus si l\'on rogne la page', apresRognage.apres, false,
+        JSON.stringify(apresRognage));
 
     // ------------------------------------------------------------------
     // 7. UNE PAGE DE TRAVERS N'A PAS DE CALQUE.
@@ -216,7 +307,6 @@ module.exports = async function (browser) {
     // ------------------------------------------------------------------
     const deTravers = await page.evaluate(async () => {
         const o = images.find(i => (i.pluginData || {}).id === 'pdfDoc');
-        if (o.src.endsWith('#autre')) o.src = o.src.slice(0, -6);
         const garde = o.angle;
         calqueNet = null;
         o.angle = 0.3;
@@ -298,16 +388,59 @@ module.exports = async function (browser) {
         const o = images.find(i => (i.pluginData || {}).id === 'pdfDoc');
         calqueNet = null;
         const enRoute = calculerLeCalqueNet(o);     // on ne l'attend pas
-        o.src = o.src + '#tourne';                  // la page change dans l'intervalle
+        const garde = o.pluginData.page;
+        o.pluginData.page = garde + 1;              // il tourne la page dans l'intervalle
         const rendu = await enRoute;
         const res = { rendu, calque: !!calqueNet };
-        o.src = o.src.slice(0, -7);
+        o.pluginData.page = garde;
         return res;
     });
-    r.egal('une page qui change pendant le rendu ne donne pas de calque',
+    r.egal('une page tournée pendant le rendu ne donne pas de calque',
         pendantLeRendu.rendu, false, JSON.stringify(pendantLeRendu));
     r.egal('et il n\'en est posé aucun', pendantLeRendu.calque, false,
         JSON.stringify(pendantLeRendu));
+
+    // ET UN ROGNAGE PENDANT LE RENDU NON PLUS : le calque serait décalé de ce
+    // qu'on a coupé.
+    const rogneEnPleinRendu = await page.evaluate(async () => {
+        const o = images.find(i => (i.pluginData || {}).id === 'pdfDoc');
+        calqueNet = null;
+        const enRoute = calculerLeCalqueNet(o);
+        const garde = { cx: o.cx, cw: o.cw };
+        o.cx = o.cx + o.cw * 0.1; o.cw = o.cw * 0.8;
+        const rendu = await enRoute;
+        const res = { rendu, calque: !!calqueNet };
+        o.cx = garde.cx; o.cw = garde.cw;
+        return res;
+    });
+    r.egal('une page rognée pendant le rendu ne donne pas de calque',
+        rogneEnPleinRendu.rendu, false, JSON.stringify(rogneEnPleinRendu));
+
+    // ------------------------------------------------------------------
+    // CALCULER UN CALQUE NE RÉCLAME PAS D'AFFINAGE DE SON PROPRE CHEF.
+    //
+    //    Le calque REPOUSSE l'affinage déjà demandé ; il ne doit pas en
+    //    inventer un. Sans quoi regarder de près une page suffirait à
+    //    déclencher un rendu de seize mégapixels que personne n'a demandé —
+    //    et ses trois cents millisecondes de gel avec.
+    // ------------------------------------------------------------------
+    const sansRienDemander = await page.evaluate(async () => {
+        const o = images.find(i => (i.pluginData || {}).id === 'pdfDoc');
+        clearTimeout(affinageDeLaVue);
+        affinageVoulu = false;
+        calqueNet = null;
+        await calculerLeCalqueNet(o);
+        const repousse = repousserLAffinageDeLaVue();
+        const srcAvant = o.src;
+        await new Promise(k => setTimeout(k, 900));
+        return { calque: !!calqueNet, repousse, pageTouchee: o.src !== srcAvant };
+    });
+    r.verifie('un calque se calcule sans qu\'on ait demandé d\'affinage',
+        sansRienDemander.calque === true, JSON.stringify(sansRienDemander));
+    r.egal('et il n\'en réclame aucun', sansRienDemander.repousse, false,
+        JSON.stringify(sansRienDemander));
+    r.egal('la page n\'est pas refaite pour autant', sansRienDemander.pageTouchee, false,
+        JSON.stringify(sansRienDemander));
 
     // ------------------------------------------------------------------
     // 11. ET S'IL REZOOME PENDANT LE CALCUL, ON REPASSE.
@@ -378,8 +511,68 @@ module.exports = async function (browser) {
     r.verifie('aucune erreur de calque', erreurs.length === 0, erreurs.join(' | '));
     await context.close();
 
+    // LA CHRONOLOGIE SE MESURE SUR UN TABLEAU TOUT NEUF : ailleurs dans ce
+    // chapitre la page a déjà été affinée jusqu'au plafond, et il ne reste
+    // alors plus rien à affiner — donc plus rien à chronométrer.
+    const neuf = await tableauNeuf();
+
     // ------------------------------------------------------------------
-    // 13. SUR UN GRAND ÉCRAN, LE PLAFOND SERT.
+    // 13. LA CHRONOLOGIE DU GESTE, QUI EST CE QUE LE PROFESSEUR VOIT.
+    //
+    //     « C'est pas hyper fluide, on voit que c'est flou puis après lissé. »
+    //
+    //     Le calque arrive le premier, et de loin — c'est lui qu'on lit. Et
+    //     l'affinage de la page, qui gèle le fil principal le temps de son
+    //     rendu, attend que le relais soit pris : mesuré 109 millisecondes de
+    //     gel jusqu'à quatre fois la page, 296 à 367 au plafond des seize
+    //     mégapixels.
+    // ------------------------------------------------------------------
+    const chrono = await neuf.page.evaluate(async () => {
+        const o = images.find(i => (i.pluginData || {}).id === 'pdfDoc');
+        zoom = 16;
+        panX = -(o.x + o.w * 0.125) * zoom + canvas.width / 2;
+        panY = -(o.y + o.h * 0.7667) * zoom + canvas.height / 2;
+        const srcAvant = o.src, t0 = performance.now();
+        let calqueA = null, imageA = null, gelMax = 0, gelQuand = null;
+        let dernier = t0, fini = false;
+        const suivre = () => {
+            const t = performance.now(), ecart = t - dernier;
+            if (ecart > gelMax) { gelMax = ecart; gelQuand = Math.round(dernier - t0); }
+            dernier = t;
+            if (calqueA === null && calqueNet) calqueA = Math.round(t - t0);
+            if (imageA === null && o.src !== srcAvant) imageA = Math.round(t - t0);
+            if (!fini) requestAnimationFrame(suivre);
+        };
+        requestAnimationFrame(suivre);
+        draw();
+        demanderAffinageDeLaVue();
+        await new Promise(k => setTimeout(k, 2600));
+        fini = true;
+        return { calqueA, imageA, gelMax: Math.round(gelMax), gelQuand };
+    });
+    r.verifie('le calque est là en moins d\'un quart de seconde',
+        chrono.calqueA !== null && chrono.calqueA < 250,
+        JSON.stringify(chrono) + ' — 699 ms quand il attendait l\'affinage');
+    r.verifie('et il arrive AVANT l\'image affinée de la page',
+        chrono.imageA !== null && chrono.imageA > chrono.calqueA,
+        JSON.stringify(chrono));
+    // LES SEUILS SONT PRIS SUR LA MESURE, et non au doigt mouillé : sans le
+    // report, l'image affinée arrive à 545-555 ms et le gel tombe à 315 ;
+    // avec, l'image est à 996 et le gel à 729. Un seuil à 500 ms ne séparait
+    // donc rien — il laissait passer les deux, et le sabotage était muet.
+    r.verifie('l\'affinage, lui, attend que le relais soit pris',
+        chrono.imageA > 800,
+        JSON.stringify(chrono) + ' — 545 à 555 ms quand il ne laissait pas passer');
+    r.verifie('et son gel ne tombe pas dans la demi-seconde qui suit le calque',
+        chrono.gelQuand !== null && chrono.gelQuand > chrono.calqueA + 400,
+        JSON.stringify(chrono) + ' — gel à 315 ms quand il ne laissait pas passer');
+
+    r.verifie('aucune erreur de chronologie', neuf.erreurs.length === 0,
+        neuf.erreurs.join(' | '));
+    await neuf.context.close();
+
+    // ------------------------------------------------------------------
+    // 14. SUR UN GRAND ÉCRAN, LE PLAFOND SERT.
     //
     //     Un vidéoprojecteur de classe monte à 2560 × 1440 : l'écran et son
     //     quart de marge font alors 5,8 mégapixels, et rendre cela à chaque
