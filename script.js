@@ -48088,6 +48088,9 @@ function renderHtmlPostits() {
                 // tortue tracerait dans un timbre-poste.
                 const dessine = (typeof leCodeDessine === 'function') && leCodeDessine(o.code);
                 if (tortuePy) tortuePy.hidden = !dessine;
+                // LA CLASSE AVANT L'EXÉCUTION : c'est elle qui donne sa hauteur
+                // à la zone, et la tortue mesure cette hauteur au démarrage.
+                el.classList.toggle('avec-tortue', !!dessine);
                 const r = await executerDuPython(o.code,
                     dessine && tortuePy ? { tortue: tortuePy } : {});
                 boutonPy.disabled = false;
@@ -48100,6 +48103,7 @@ function renderHtmlPostits() {
                     && typeof laTortueADessine === 'function' && laTortueADessine(tortuePy);
                 if (poserPy) poserPy.hidden = !aDessine;
                 if (tortuePy && dessine && !aDessine) tortuePy.hidden = true;
+                if (!aDessine) el.classList.remove('avec-tortue');
                 if (r.moteurAbsent) {
                     // PYTHON EST DANS L'APPLICATION, il ne vient plus d'Internet.
                     // S'il manque, c'est un fichier du dossier qui manque — on
@@ -48111,7 +48115,13 @@ function renderHtmlPostits() {
                 } else {
                     o.sortie = r.sortie + (r.erreur ? (r.sortie ? '\n' : '') + r.erreur : '');
                     if (r.erreur) sortiePy.classList.add('py-rate');
-                    if (!o.sortie) o.sortie = '(le programme n’a rien affiché)';
+                    // UN PROGRAMME QUI DESSINE A BIEN AFFICHÉ QUELQUE CHOSE :
+                    // le dire muet sous un tracé qu'on regarde est une sottise,
+                    // vue à l'essai sous une rosace de trente-six branches.
+                    if (!o.sortie) {
+                        o.sortie = aDessine ? '(le dessin est au-dessus)'
+                                            : '(le programme n’a rien affiché)';
+                    }
                 }
                 sortiePy.textContent = o.sortie;
                 saveState();
@@ -48798,12 +48808,49 @@ function laTortueADessine(zone) {
 }
 window.laTortueADessine = laTortueADessine;
 
+// ON POSE LE DESSIN, PAS LA TOILE.
+//
+// Vu à l'essai : une rosace de deux cents pixels arrivait au tableau dans un
+// rectangle blanc de mille sur quatre cents — toute la zone de tracé. On
+// déplaçait et l'on agrandissait surtout du vide, et le dessin lui-même
+// restait minuscule au milieu. On le recadre donc sur son encre, avec la marge
+// qu'on laisserait à la main.
+const MARGE_DU_DESSIN = 14;
+function recadrerSurLEncre(toile) {
+    if (!toile) return null;
+    let d;
+    try {
+        d = toile.getContext('2d').getImageData(0, 0, toile.width, toile.height).data;
+    } catch (x) { return toile; }
+    let g = toile.width, h = toile.height, dr = -1, b = -1;
+    for (let y = 0; y < toile.height; y++) {
+        for (let x = 0; x < toile.width; x++) {
+            const i = (y * toile.width + x) * 4;
+            if (d[i] < 245 || d[i + 1] < 245 || d[i + 2] < 245) {
+                if (x < g) g = x; if (x > dr) dr = x;
+                if (y < h) h = y; if (y > b) b = y;
+            }
+        }
+    }
+    if (dr < 0) return null;                      // pas d'encre du tout
+    const x0 = Math.max(0, g - MARGE_DU_DESSIN), y0 = Math.max(0, h - MARGE_DU_DESSIN);
+    const x1 = Math.min(toile.width, dr + 1 + MARGE_DU_DESSIN);
+    const y1 = Math.min(toile.height, b + 1 + MARGE_DU_DESSIN);
+    const c = document.createElement('canvas');
+    c.width = Math.max(1, x1 - x0); c.height = Math.max(1, y1 - y0);
+    const ctx2 = c.getContext('2d');
+    ctx2.fillStyle = '#ffffff'; ctx2.fillRect(0, 0, c.width, c.height);
+    ctx2.drawImage(toile, x0, y0, c.width, c.height, 0, 0, c.width, c.height);
+    return c;
+}
+window.recadrerSurLEncre = recadrerSurLEncre;
+
 // LE TRACÉ DEVIENT UN OBJET DU TABLEAU. C'est tout l'intérêt d'avoir la tortue
 // ICI plutôt que sur un autre site : le dessin se déplace, s'agrandit, et l'on
 // écrit au crayon par-dessus — « regardez l'angle, là ». Il part aussi avec la
 // séance, comme le reste.
 function poserLeDessinDeLaTortue(zone) {
-    const c = aplatirLeDessin(zone);
+    const c = recadrerSurLEncre(aplatirLeDessin(zone));
     if (!c) return null;
     const src = c.toDataURL('image/png');
     const ech = (typeof zoom !== 'undefined' && zoom) ? zoom : 1;

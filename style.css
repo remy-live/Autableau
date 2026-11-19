@@ -13743,14 +13743,23 @@ body.focus-mode #bar-document.vertical.visible { transform: translateY(-50%); }
 
 /* LA ZONE DE TRACÉ. Fond blanc quoi qu'il arrive : la tortue dessine en noir
    par défaut, et sur le fond sombre de la fenêtre on ne verrait rien. */
+/* LA ZONE DE TRACÉ PREND LA PLACE, quand il y a un tracé.
+   Vu à l'essai : 616 pixels de large pour 180 de haut, parce qu'elle se
+   contentait de son minimum — un dessin de deux cents pixels de haut y était
+   coupé. Quand un programme dessine, c'est le dessin qu'on regarde : il prend
+   les trois quarts de la hauteur, le programme garde de quoi se lire, et la
+   sortie se réduit à sa ligne. */
 .html-postit-python .py-tortue {
     background: #ffffff;
     border-radius: 6px;
-    min-height: 180px;
-    flex: 1 1 auto;
+    min-height: 200px;
+    flex: 3 1 0;
     overflow: hidden;
     position: relative;
 }
+
+.html-postit.avec-tortue .py-code { flex: 1 1 0; }
+.html-postit.avec-tortue .py-sortie { flex: 0 0 auto; max-height: 3.4em; }
 
 .html-postit-python .py-etat {
     font-size: 11.5px;

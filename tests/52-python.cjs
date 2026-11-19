@@ -426,10 +426,16 @@ module.exports = async function (browser) {
         const trace = await page.evaluate(() => ({
             zone: !document.querySelector('.py-tortue').hidden,
             poser: !document.querySelector('.py-poser').hidden,
-            encre: laTortueADessine(document.querySelector('.py-tortue'))
+            encre: laTortueADessine(document.querySelector('.py-tortue')),
+            sortie: document.querySelector('.py-sortie').textContent
         }));
         r.verifie('la tortue a dessiné, et la zone s\'ouvre',
             trace.zone && trace.encre, JSON.stringify(trace));
+        // ET LA FENÊTRE NE DIT PAS QUE LE PROGRAMME EST MUET. Vu à l'essai :
+        // « (le programme n'a rien affiché) » sous une rosace de trente-six
+        // branches qu'on venait de regarder se tracer.
+        r.verifie('elle ne prétend pas que le programme n\'a rien affiché',
+            !/rien affiché/.test(trace.sortie || ''), JSON.stringify(trace.sortie));
         r.verifie('et l\'on propose de poser le dessin au tableau',
             trace.poser === true, JSON.stringify(trace));
 
@@ -438,13 +444,56 @@ module.exports = async function (browser) {
             if (b) b.click();
         });
         await page.waitForTimeout(400);
-        const pose = await page.evaluate(() => images.map(i => ({
-            plugin: (i.pluginData || {}).id, l: Math.round(i.w), h: Math.round(i.h),
-            image: /^data:image\/png/.test(i.src || '')
-        })));
+        const pose = await page.evaluate(() => {
+            const z = document.querySelector('.py-tortue');
+            const toile = z.querySelector('canvas');
+            return images.map(i => ({
+                plugin: (i.pluginData || {}).id, l: Math.round(i.w), h: Math.round(i.h),
+                image: /^data:image\/png/.test(i.src || ''),
+                zone: { l: toile ? toile.width : 0, h: toile ? toile.height : 0 }
+            }));
+        });
         r.egal('le tracé est un objet du tableau', pose.length, 1, JSON.stringify(pose));
         r.verifie('une vraie image, à la taille où elle a été tracée',
             pose[0] && pose[0].image && pose[0].l > 50 && pose[0].h > 50, JSON.stringify(pose));
+        // ON POSE LE DESSIN, PAS LA TOILE. Vu à l'essai : une rosace arrivait au
+        // tableau dans tout le rectangle blanc de la zone de tracé — on déplaçait
+        // et l'on agrandissait surtout du vide.
+        r.verifie('ET IL EST RECADRÉ SUR SON ENCRE, non sur la zone entière',
+            pose[0] && pose[0].l < pose[0].zone.l - 40 && pose[0].h < pose[0].zone.h - 40,
+            JSON.stringify(pose) + ' — toute la zone de tracé avant le recadrage');
+
+        // ET UN DESSIN DE TAILLE ORDINAIRE N'EST PAS COUPÉ.
+        //
+        // Vu à l'essai : la zone de tracé se contentait de son minimum — 616
+        // pixels de large pour 180 de haut — et tout ce qui dépassait deux
+        // cents pixels y était tranché. Un carré de deux cent quarante, c'est
+        // le premier exercice de tortue de l'année.
+        await page.evaluate(async () => {
+            const o = htmlPostits.find(h => h.mode === 'python');
+            o.w = 620; o.h = 560;
+            renderHtmlPostits();
+            await new Promise(k => setTimeout(k, 150));
+            const p2 = htmlPostits.find(h => h.mode === 'python');
+            p2.code = 'import turtle\nt = turtle.Turtle()\nt.speed(0)\nt.hideturtle()\n'
+                + 't.penup()\nt.goto(-120, -120)\nt.pendown()\n'
+                + 'for i in range(4):\n    t.forward(240)\n    t.left(90)\n';
+            document.querySelector('.py-code').value = p2.code;
+        });
+        await page.evaluate(() => {
+            const b = document.querySelector('.py-lancer');
+            if (b) b.click();
+        });
+        await page.waitForTimeout(2500);
+        const carre = await page.evaluate(() => {
+            const c = recadrerSurLEncre(aplatirLeDessin(document.querySelector('.py-tortue')));
+            const toile = document.querySelector('.py-tortue canvas');
+            return { dessin: c ? { l: c.width, h: c.height } : null,
+                     zone: toile ? { l: toile.width, h: toile.height } : null };
+        });
+        r.verifie('un carré de 240 pixels tient dans la zone, sans être coupé',
+            carre.dessin && carre.dessin.h >= 240 && carre.dessin.h <= 290,
+            JSON.stringify(carre) + ' — tranché à 180 quand la zone gardait sa hauteur minimale');
 
         // ON RELANCE LE MÊME PROGRAMME, et il doit dessiner de nouveau.
         //

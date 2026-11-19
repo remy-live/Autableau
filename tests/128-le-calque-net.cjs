@@ -590,6 +590,12 @@ module.exports = async function (browser) {
         }));
         const o = images.find(i => (i.pluginData || {}).id === 'pdfDoc');
         const zoomAvant = zoom;
+        // ON RELÈVE LA FINESSE AVANT DE POSER LES DOIGTS, et non après les
+        // avoir levés. Sur une machine chargée, le pincement dure assez
+        // longtemps pour que l'affinage s'y glisse : la page était alors déjà
+        // au plafond quand on la mesurait, et le contrôle tombait pour une
+        // raison qui n'était pas la sienne.
+        const finesseAvant = +(o.cw / o.w).toFixed(2);
         // deux doigts qui s'écartent, par petits pas, comme une main
         ev('pointerdown', 1, 650, 420); ev('pointerdown', 2, 750, 480);
         let e = 0;
@@ -601,7 +607,7 @@ module.exports = async function (browser) {
         }
         ev('pointerup', 1, 650 - e, 420 - e * 0.6);
         ev('pointerup', 2, 750 + e, 480 + e * 0.6);
-        const zoomApres = zoom, finesseAvant = +(o.cw / o.w).toFixed(2);
+        const zoomApres = zoom;
         await new Promise(r => setTimeout(r, 2600));
         return { zoomAvant, zoomApres: +zoomApres.toFixed(2), finesseAvant,
                  finesseApres: +(o.cw / o.w).toFixed(2),
