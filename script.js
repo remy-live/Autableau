@@ -10796,6 +10796,16 @@ function updateStyleBarContext() {
         barStyle.classList.remove('visible');
         barStyle.removeAttribute('data-dragged');
     }
+    // ET SI LE TEXTE SÉLECTIONNÉ EST UN PROGRAMME, on propose de l'exécuter.
+    //
+    // APRÈS LA CHAÎNE, ET NON DEDANS. Glissé au milieu, ce « if » la cassait :
+    // le « else if » suivant se raccrochait à LUI, si bien qu'un document, un
+    // trait ou rien du tout ne donnaient plus aucun contexte — et la barre de
+    // style ne s'affichait plus du tout. Sept contrôles du chapitre 15 et dix
+    // du 123 sont tombés là-dessus.
+    if (typeof texteSelectionneEnPython === 'function' && texteSelectionneEnPython()) {
+        barStyle.classList.add('ctx-python');
+    }
     // ----------------------------------------------------------------------------------
 
     // LA BARRE DU DOCUMENT EST UN AUTRE MEUBLE, et elle se règle sur
@@ -11349,6 +11359,16 @@ const DESSIN_DU_TRAIT = {
     dashed: '<line x1="4" y1="12" x2="20" y2="12" stroke-width="3" stroke-dasharray="6,4"/>',
     dotted: '<line x1="4" y1="12" x2="20" y2="12" stroke-width="3" stroke-dasharray="2,4"/>'
 };
+
+// ▶ PYTHON : exécuter le programme écrit au tableau. Le bouton n'existe dans
+// la barre que lorsque le texte sélectionné en est un — voir « ctx-python ».
+(function brancherLeBoutonPython() {
+    const b = document.getElementById('btn-python-executer');
+    if (!b) return;
+    b.addEventListener('click', () => {
+        if (typeof executerLeTexteDuTableau === 'function') executerLeTexteDuTableau();
+    });
+})();
 
 document.getElementById('btn-dash').addEventListener('click', () => {
     activeStyle.lineDash = TRAITS[(TRAITS.indexOf(activeStyle.lineDash) + 1) % TRAITS.length];
@@ -47810,8 +47830,11 @@ function renderHtmlPostits() {
                         placeholder="# Votre programme\nfor i in range(3):\n    print(i)"></textarea>
                     <div class="py-commandes">
                         <button class="py-lancer" type="button">▶ Exécuter</button>
+                        <button class="py-arreter" type="button" hidden>■ Arrêter</button>
+                        <button class="py-poser" type="button" hidden>Poser le dessin au tableau</button>
                         <span class="py-etat"></span>
                     </div>
+                    <div class="py-tortue" hidden></div>
                     <pre class="py-sortie"></pre>
                 </div>
             `;
@@ -48024,8 +48047,11 @@ function renderHtmlPostits() {
             // est sous le programme, sans avoir à relancer.
             const champCode = el.querySelector('.py-code');
             const boutonPy = el.querySelector('.py-lancer');
+            const arretPy = el.querySelector('.py-arreter');
+            const poserPy = el.querySelector('.py-poser');
             const etatPy = el.querySelector('.py-etat');
             const sortiePy = el.querySelector('.py-sortie');
+            const tortuePy = el.querySelector('.py-tortue');
 
             champCode.addEventListener('input', () => {
                 const o = htmlPostits.find(hp => hp.id === p.id); if (!o) return;
@@ -48049,20 +48075,38 @@ function renderHtmlPostits() {
                 const o = htmlPostits.find(hp => hp.id === p.id); if (!o) return;
                 o.code = champCode.value;
                 boutonPy.disabled = true;
-                etatPy.textContent = (typeof window.__BRYTHON__ === 'undefined')
-                    ? 'Chargement de Python…' : 'Calcul…';
+                // « ARRÊTER » PARAÎT PENDANT QUE ÇA TOURNE, et seulement là.
+                // C'est le bouton qu'on cherche quand une boucle ne finit pas,
+                // et un bouton qu'on ne voit pas vaut un bouton absent.
+                if (arretPy) arretPy.hidden = false;
+                if (poserPy) poserPy.hidden = true;
+                etatPy.textContent = (typeof pythonEstLa === 'function' && pythonEstLa())
+                    ? 'Calcul…' : 'Chargement de Python…';
                 sortiePy.classList.remove('py-rate');
-                const r = await executerDuPython(o.code);
+                // LA ZONE DE TRACÉ S'OUVRE AVANT D'EXÉCUTER, et seulement pour
+                // un programme qui dessine : cachée, elle mesure zéro, et la
+                // tortue tracerait dans un timbre-poste.
+                const dessine = (typeof leCodeDessine === 'function') && leCodeDessine(o.code);
+                if (tortuePy) tortuePy.hidden = !dessine;
+                const r = await executerDuPython(o.code,
+                    dessine && tortuePy ? { tortue: tortuePy } : {});
                 boutonPy.disabled = false;
+                if (arretPy) arretPy.hidden = true;
                 etatPy.textContent = '';
-                if (r.reseau) {
-                    // LE SEUL MORCEAU DE L'APPLICATION QUI DEMANDE LE RÉSEAU.
-                    // On le dit, au lieu de laisser une fenêtre qui ne répond
-                    // pas : dans une salle sans wifi, c'est une information,
-                    // pas une panne.
-                    o.sortie = 'Python n’a pas pu être chargé.\n'
-                        + 'Cette fenêtre est la seule qui demande une connexion :\n'
-                        + 'le moteur se télécharge une fois, puis le navigateur le garde.';
+                // ET L'ON NE PROPOSE DE LE POSER QUE S'IL Y A QUELQUE CHOSE :
+                // un programme qui importe la tortue sans rien tracer ne doit
+                // pas offrir de poser une page blanche au tableau.
+                const aDessine = dessine && tortuePy
+                    && typeof laTortueADessine === 'function' && laTortueADessine(tortuePy);
+                if (poserPy) poserPy.hidden = !aDessine;
+                if (tortuePy && dessine && !aDessine) tortuePy.hidden = true;
+                if (r.moteurAbsent) {
+                    // PYTHON EST DANS L'APPLICATION, il ne vient plus d'Internet.
+                    // S'il manque, c'est un fichier du dossier qui manque — on
+                    // le dit comme tel, au lieu d'accuser le wifi de l'école.
+                    o.sortie = 'Python n’a pas pu démarrer.\n'
+                        + 'Le moteur est fourni avec l’application (dossier « lib/skulpt ») :\n'
+                        + 'si ce message revient, c’est un fichier qui manque, pas la connexion.';
                     sortiePy.classList.add('py-rate');
                 } else {
                     o.sortie = r.sortie + (r.erreur ? (r.sortie ? '\n' : '') + r.erreur : '');
@@ -48073,6 +48117,18 @@ function renderHtmlPostits() {
                 saveState();
             };
             boutonPy.addEventListener('click', lancerLeProgramme);
+            if (arretPy) {
+                arretPy.addEventListener('click', () => {
+                    if (typeof arreterLePython === 'function') arreterLePython();
+                });
+            }
+            if (poserPy) {
+                poserPy.addEventListener('click', () => {
+                    if (typeof poserLeDessinDeLaTortue === 'function') {
+                        poserLeDessinDeLaTortue(tortuePy);
+                    }
+                });
+            }
             el._pyLancer = lancerLeProgramme;
             // Ctrl+Entrée : le geste de tous les carnets de code.
             champCode.addEventListener('keydown', (e) => {
@@ -48588,20 +48644,42 @@ window.ouvrirUneFenetreWeb = ouvrirUneFenetreWeb;
 // une salle dont le pare-feu bloque basthon.fr n'a plus rien. Ici, le programme
 // s'exécute DANS la page, et le post-it qui le porte s'enregistre avec le reste.
 //
-// LE MOTEUR EST BRYTHON, et il n'est PAS embarqué : « je ne veux pas les
-// embarquer hors ligne, ça fait trop gros ; quand on le charge, on appelle les
-// CDN. » C'est la seule pièce de l'application qui demande le réseau, et elle
-// le demande une fois par navigateur — ensuite le cache s'en charge. On le dit
-// franchement quand il manque, plutôt que de laisser une fenêtre morte.
+// LE MOTEUR EST SKULPT, ET IL EST EMBARQUÉ. Il l'a remplacé Brython, qui ne
+// l'était pas : « je ne veux pas les embarquer hors ligne, ça fait trop gros ;
+// quand on le charge, on appelle les CDN. » C'était juste — Brython pèse 6,1
+// Mo. Skulpt en fait 947 Ko, six fois et demie moins, et le calcul change avec
+// le poids : il tient dans le dépôt. Python au tableau était la seule pièce de
+// l'application qui demandait le réseau ; elle ne le demande plus.
 //
-// ET ON NE CHARGE QUE CE QU'ON UTILISE : le moteur seul fait 1,3 Mo et suffit
-// aux boucles, aux fonctions, aux classes et aux f-strings ; la bibliothèque
-// standard en fait 4,8 de plus et n'est appelée que si le programme écrit
-// « import ». Un premier cours sans import démarre donc quatre fois plus vite.
+// CE QU'ON Y A GAGNÉ, mesuré sur dix-huit constructions de niveau classe :
+// dix-sept passent — f-strings formatées, compréhensions, classes, tranches,
+// « sorted(key=) », les modules « math » et « random ». La dix-huitième est
+// l'opérateur morse « := », qui ne s'écrit pas au collège. Et deux choses que
+// Brython ne donnait pas : « input() », qui demande enfin la valeur dans une
+// boîte à nous, et la tortue.
+//
+// CE QU'ON Y A PERDU, en revanche : le chargement en deux temps. Brython
+// savait exécuter une boucle avec son seul moteur, et n'allait chercher la
+// bibliothèque standard que si le programme écrivait « import ». Skulpt, non :
+// mesuré, « for i in range(3): print(i) » échoue sur « ImportError : No module
+// named sys » tant que la bibliothèque n'est pas là — son « print » lui-même en
+// dépend. On charge donc toujours les deux, 947 Ko d'un coup. C'est le prix,
+// et il se paie une fois par séance, sur des fichiers du dossier.
 // ==============================================================================
-const PYTHON_CDN = 'https://cdn.jsdelivr.net/npm/brython@3.14.3/';
-const PYTHON_MOTEUR = PYTHON_CDN + 'brython.min.js';
-const PYTHON_BIBLIOTHEQUE = PYTHON_CDN + 'brython_stdlib.js';
+const PYTHON_MOTEUR = './lib/skulpt/skulpt.min.js?v=1';
+const PYTHON_BIBLIOTHEQUE = './lib/skulpt/skulpt-stdlib.js?v=1';
+
+// LE PROGRAMME S'ARRÊTE AU BOUT DE TRENTE SECONDES, quoi qu'il arrive. C'est le
+// filet pour le programme qu'on lance et qu'on oublie ; le bouton « Arrêter »,
+// lui, répond tout de suite.
+const PYTHON_LIMITE_MS = 30000;
+
+// ON REND LA MAIN TOUS LES CINQUANTE MILLISECONDES. Sans cela le tableau est
+// GELÉ pendant qu'un programme tourne — mesuré : une boucle sans fin laissée
+// deux secondes, zéro battement d'horloge dans la page, rien ne répond. Avec,
+// cent battements sur les mêmes deux secondes : on peut lire, écrire, et
+// surtout appuyer sur « Arrêter ».
+const PYTHON_RESPIRE_MS = 50;
 
 // Les chargements en cours, pour que deux fenêtres ouvertes en même temps ne
 // téléchargent pas deux fois la même chose.
@@ -48628,129 +48706,236 @@ function chargerUnScript(url) {
 }
 window.chargerUnScript = chargerUnScript;
 
-// « import » quelque part dans le programme : c'est le seul indice dont on
-// dispose avant de l'exécuter, et il suffit. Un faux positif coûte un
-// téléchargement de plus ; un faux négatif coûterait un « ImportError » que
-// personne ne comprendrait.
-function leCodeImporte(code) {
-    return /(^|\n)\s*(import\s+\w|from\s+[\w.]+\s+import)/.test(String(code || ''));
-}
-window.leCodeImporte = leCodeImporte;
+
+
+
 
 let pythonPret = null;
 
-function preparerPython(avecLaBibliotheque) {
-    const besoin = !!avecLaBibliotheque;
-    // Déjà prêt, et assez complet pour ce qu'on demande.
-    if (pythonPret && (pythonPret.complet || !besoin)) return pythonPret.promesse;
+// L'interpréteur est-il là ? La bibliothèque standard l'est-elle ?
+function pythonEstLa() { return typeof Sk !== 'undefined' && !!Sk && !!Sk.misceval; }
+function pythonALaBibliotheque() {
+    return pythonEstLa() && !!(Sk.builtinFiles && Sk.builtinFiles.files);
+}
+window.pythonEstLa = pythonEstLa;
+window.pythonALaBibliotheque = pythonALaBibliotheque;
+
+function preparerPython() {
+    if (pythonPret) return pythonPret.promesse;
+    // L'ORDRE N'EST PAS LIBRE : la bibliothèque standard se pose SUR
+    // l'interpréteur — elle remplit « Sk.builtinFiles », qui n'existe pas avant
+    // lui. Chargées en parallèle, elle arrive parfois la première, et tout
+    // programme qui importe un module échoue sur « File not found ».
     const promesse = chargerUnScript(PYTHON_MOTEUR)
-        .then(() => besoin ? chargerUnScript(PYTHON_BIBLIOTHEQUE) : true)
         .then(() => {
-            if (typeof window.brython !== 'function') throw new Error('moteur Python illisible');
-            // « ids: [] » : on ne veut pas que Brython parte chercher les
-            // balises « text/python » de la page — il n'y en a pas, et nos
-            // programmes passent par « runPythonSource ».
-            if (!window.__BRYTHON__ || !window.__BRYTHON__.$brython_lance) {
-                window.brython({ debug: 0, ids: [] });
-                if (window.__BRYTHON__) window.__BRYTHON__.$brython_lance = true;
-            }
+            if (!pythonEstLa()) throw new Error('moteur Python illisible');
+            return chargerUnScript(PYTHON_BIBLIOTHEQUE);
+        })
+        .then(() => {
+            if (!pythonALaBibliotheque()) throw new Error('bibliothèque Python illisible');
             return true;
         });
-    pythonPret = { promesse, complet: besoin };
-    promesse.catch(() => { pythonPret = null; });   // on pourra réessayer
+    pythonPret = { promesse };
+    // UN ÉCHEC NE DOIT PAS CONDAMNER LA SÉANCE : on doit pouvoir redemander.
+    // Sans cela, la promesse ratée resterait en mémoire et répondrait « non »
+    // jusqu'à la fin de la journée.
+    promesse.catch(() => { pythonPret = null; });
     return promesse;
 }
 window.preparerPython = preparerPython;
 
-// LE NOM DU MODULE DEVIENT UN IDENTIFIANT JAVASCRIPT chez Brython : un nom
-// contenant « < » ou un tiret casse la compilation avec une erreur de syntaxe
-// JavaScript que rien, dans le programme de l'élève, n'explique.
-let numeroDExecution = 0;
+// LA SORTIE, LE CLAVIER ET LES ERREURS PASSENT PAR SKULPT LUI-MÊME.
+//
+// Brython n'offrait rien de tel : il fallait redéfinir « print » dans un
+// préambule glissé devant le programme, puis soustraire les lignes de ce
+// préambule de tous les numéros d'erreur — sans quoi une faute de la première
+// ligne s'annonçait à la septième, dans un texte que l'élève n'a jamais écrit.
+// Le préambule est parti avec Brython : Skulpt prend « output » et « inputfun »
+// dans sa configuration, et ses numéros de ligne sont ceux du programme.
+let pythonArret = false;
+let pythonEnCours = false;
+let numeroDeTortue = 0;
 
-// LA SORTIE SE RAMASSE EN REDÉFINISSANT « print », et elle s'écrit dans un
-// tableau de la PAGE, au fur et à mesure.
-//
-// Deux fausses pistes ont précédé celle-ci, et valent d'être dites :
-//   — « import sys » puis détournement de « sys.stdout » : sans la
-//     bibliothèque standard — c'est-à-dire pour tout programme qui n'importe
-//     rien, justement celui qu'on voulait servir vite — Brython n'a pas de
-//     « sys » et va chercher un fichier local que le navigateur lui refuse ;
-//   — relire une variable du module après coup : ce que « runPythonSource »
-//     rend n'expose pas les noms du module comme des propriétés JavaScript.
-//
-// Le pont « from browser import window », lui, vit dans le moteur et non dans
-// la bibliothèque : il répond toujours. Et comme on écrit au fil de
-// l'exécution, ce qui a été affiché AVANT une erreur est gardé — c'est la
-// moitié de ce qu'on regarde quand on cherche où un programme s'arrête.
-//
-// Un nom défini au niveau du module masque le « print » natif, y compris dans
-// les fonctions que le programme définit ensuite.
-//
-// « input » est masqué lui aussi, pour une autre raison : le « input » natif
-// de Brython ouvre une boîte du NAVIGATEUR. Ces boîtes-là sont bannies de
-// toute l'application — elles n'ont ni notre habillage ni le mode nuit, et sur
-// vidéoprojecteur elles s'affichent avec l'adresse du site en gros. On répond
-// donc par une erreur qui dit quoi faire à la place.
-const PYTHON_CAPTURE = [
-    'from browser import window as _autableau_page',
-    '_autableau_sortie = _autableau_page.SORTIE_PYTHON',
-    'def print(*valeurs, sep=" ", end="\\n"):',
-    '    _autableau_sortie.push(sep.join([str(v) for v in valeurs]) + end)',
-    'def input(invite=""):',
-    '    raise RuntimeError("Cette fenêtre ne lit pas le clavier pendant qu\'un '
-        + 'programme tourne. Donnez la valeur dans le programme, par exemple : n = 7")',
-    ''
-].join('\n');
+// LE PROGRAMME DESSINE-T-IL ? On ne montre la zone de tracé que si la tortue
+// est appelée : une fenêtre de calcul n'a pas à perdre la moitié de sa hauteur
+// pour un carré blanc. Et la zone doit être VISIBLE avant d'exécuter, sinon
+// elle mesure zéro et la tortue dessine dans un timbre-poste.
+function leCodeDessine(code) {
+    return /(^|\n)\s*(import\s+turtle|from\s+turtle\s+import)/.test(String(code || ''));
+}
+window.leCodeDessine = leCodeDessine;
 
-// Ce que le programme a écrit, et dont on sait combien de lignes de capture le
-// précèdent : un message d'erreur qui annonce « ligne 34 » sur un programme de
-// six lignes ne renseigne personne.
-const PYTHON_LIGNES_DE_CAPTURE = PYTHON_CAPTURE.split('\n').length - 1;
+// LE TRACÉ EST FAIT DE PLUSIEURS TOILES SUPERPOSÉES — Skulpt en empile une par
+// couche, la tortue elle-même sur le dessus. Pour le poser au tableau il faut
+// les aplatir, dans l'ordre, sur une seule.
+function aplatirLeDessin(zone) {
+    if (!zone) return null;
+    const toiles = [...zone.querySelectorAll('canvas')];
+    if (!toiles.length) return null;
+    const l = toiles[0].width, h = toiles[0].height;
+    if (!l || !h) return null;
+    const c = document.createElement('canvas');
+    c.width = l; c.height = h;
+    const g = c.getContext('2d');
+    g.fillStyle = '#ffffff'; g.fillRect(0, 0, l, h);
+    toiles.forEach(t => { try { g.drawImage(t, 0, 0, l, h); } catch (x) { /* toile vide */ } });
+    return c;
+}
+window.aplatirLeDessin = aplatirLeDessin;
 
-// Ce que Brython lève n'est pas une erreur JavaScript : c'est un objet Python.
-// Sans cette lecture, l'élève voyait « [object Object] » à la place de
-// « ZeroDivisionError: division by zero ».
+// A-T-ELLE DESSINÉ QUELQUE CHOSE ? Un programme qui importe la tortue sans
+// rien tracer ne doit pas proposer de poser une page blanche au tableau.
+function laTortueADessine(zone) {
+    const c = aplatirLeDessin(zone);
+    if (!c) return false;
+    try {
+        const d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data;
+        for (let i = 0; i < d.length; i += 4) {
+            if (d[i] < 245 || d[i + 1] < 245 || d[i + 2] < 245) return true;
+        }
+    } catch (x) { return false; }
+    return false;
+}
+window.laTortueADessine = laTortueADessine;
+
+// LE TRACÉ DEVIENT UN OBJET DU TABLEAU. C'est tout l'intérêt d'avoir la tortue
+// ICI plutôt que sur un autre site : le dessin se déplace, s'agrandit, et l'on
+// écrit au crayon par-dessus — « regardez l'angle, là ». Il part aussi avec la
+// séance, comme le reste.
+function poserLeDessinDeLaTortue(zone) {
+    const c = aplatirLeDessin(zone);
+    if (!c) return null;
+    const src = c.toDataURL('image/png');
+    const ech = (typeof zoom !== 'undefined' && zoom) ? zoom : 1;
+    const px = typeof panX !== 'undefined' ? panX : 0;
+    const py = typeof panY !== 'undefined' ? panY : 0;
+    // ON LE POSE À LA TAILLE OÙ IL A ÉTÉ TRACÉ, au milieu de ce qu'on regarde :
+    // agrandi d'office, un trait de tortue d'un pixel devient une barre floue.
+    const l = c.width, h = c.height;
+    const lx = (window.innerWidth / 2 - px) / ech;
+    const ly = (window.innerHeight / 2 - py) / ech;
+    const objet = {
+        id: nextId++, x: lx - (l / ech) / 2, y: ly - (h / ech) / 2,
+        w: l / ech, h: h / ech,
+        cx: 0, cy: 0, cw: l, ch: h,
+        src, fileName: 'tortue.png', z: globalZ++,
+        pluginData: { id: 'pythonTortue' }
+    };
+    const img = new Image();
+    img.src = src;
+    imageCache[src] = img;
+    images.push(objet);
+    if (typeof noterLaPage === 'function') {
+        noterLaPage(objet, objet.x + objet.w / 2, objet.y + objet.h / 2);
+    }
+    if (typeof saveState === 'function') saveState();
+    if (typeof draw === 'function') draw();
+    if (typeof showToast === 'function') showToast('🐢 Le dessin est au tableau');
+    return objet;
+}
+window.poserLeDessinDeLaTortue = poserLeDessinDeLaTortue;
+
+// ===================================================================
+// EXÉCUTER LE PROGRAMME ÉCRIT AU TABLEAU
+// ===================================================================
+// On écrit le programme à la main pendant le cours — dans un texte, comme le
+// reste de la leçon — et l'on veut le faire tourner sans le retaper.
+//
+// LE BOUTON NE PARAÎT QUE SI LE TEXTE EST UN PROGRAMME. Un bouton « exécuter »
+// sous chaque titre et chaque consigne encombrerait la barre pour rien, et
+// surtout il la rendrait illisible : on n'y cherche plus, on y fouille. Il
+// faut donc une marque de Python en DÉBUT DE LIGNE — « print( », « def f( »,
+// « for x in … : », « while … : », « import … ». Le mot « important » dans une
+// phrase ne déclenche rien, puisqu'on exige « import » suivi d'un nom.
+function leTexteEstDuPython(contenu) {
+    const t = String(contenu || '');
+    if (!t.trim()) return false;
+    return /(^|\n)[ \t]*(print[ \t]*\(|def[ \t]+\w+[ \t]*\(|for[ \t]+\w+[ \t]+in[ \t]+.*:|while[ \t]+.*:|import[ \t]+\w|from[ \t]+[\w.]+[ \t]+import[ \t]+\w)/.test(t);
+}
+window.leTexteEstDuPython = leTexteEstDuPython;
+
+// LE TEXTE SÉLECTIONNÉ, s'il n'y en a qu'un et s'il est un programme.
+function texteSelectionneEnPython() {
+    if (typeof selectedItems === 'undefined' || !Array.isArray(selectedItems)) return null;
+    if (selectedItems.length !== 1 || selectedItems[0].type !== 'text') return null;
+    const t = (typeof getObjectById === 'function')
+        ? getObjectById('text', selectedItems[0].id) : null;
+    if (!t || !leTexteEstDuPython(t.content)) return null;
+    return t;
+}
+window.texteSelectionneEnPython = texteSelectionneEnPython;
+
+// ON NE REMPLACE PAS LE TEXTE DU TABLEAU, ON L'EMMÈNE DANS UNE FENÊTRE. Le
+// programme écrit à la main reste au tableau — c'est la trace de la leçon — et
+// la fenêtre qui l'exécute se pose à côté, avec sa sortie. Corriger dans la
+// fenêtre ne défait donc pas ce qu'on a écrit devant la classe.
+function executerLeTexteDuTableau(texte) {
+    const t = texte || texteSelectionneEnPython();
+    if (!t) return null;
+    if (typeof ouvrirUneFenetrePython !== 'function') return null;
+    const fenetre = ouvrirUneFenetrePython({ code: String(t.content || '') });
+    // La fenêtre vient d'être rendue : on va chercher son bouton et on lance.
+    const lancer = () => {
+        const el = document.querySelector('.html-postit[data-id="' + fenetre.id + '"]');
+        if (el && typeof el._pyLancer === 'function') { el._pyLancer(); return true; }
+        return false;
+    };
+    if (!lancer()) setTimeout(lancer, 60);
+    return fenetre;
+}
+window.executerLeTexteDuTableau = executerLeTexteDuTableau;
+
+function pythonTourne() { return pythonEnCours; }
+window.pythonTourne = pythonTourne;
+
+// « Arrêter » ne tue rien de force : il lève le drapeau, et c'est à la
+// respiration suivante — cinquante millisecondes plus tard au pire — que le
+// programme s'interrompt de lui-même.
+function arreterLePython() {
+    if (!pythonEnCours) return false;
+    pythonArret = true;
+    return true;
+}
+window.arreterLePython = arreterLePython;
+
+// « input() » DEMANDE DANS UNE BOÎTE À NOUS.
+//
+// Brython ouvrait celle du NAVIGATEUR, bannie de toute l'application : elle n'a
+// ni notre habillage ni le mode nuit, et sur vidéoprojecteur elle s'affiche
+// avec l'adresse du site en gros. On répondait donc par une erreur qui disait
+// de mettre la valeur dans le programme. Skulpt laisse brancher ce qu'on veut :
+// c'est la boîte du tableau qui demande, et « Annuler » arrête le programme
+// au lieu de lui rendre une valeur qu'on n'a pas donnée.
+function demanderUneValeurPython(invite) {
+    return new Promise((rendre, refuser) => {
+        const question = String(invite === undefined ? '' : invite).trim()
+            || 'Le programme attend une valeur';
+        if (typeof openCustomPrompt !== 'function') { rendre(''); return; }
+        openCustomPrompt(question,
+            [{ type: 'text', label: '', value: '' }],
+            null,
+            (res) => rendre(res && res[0] !== undefined ? String(res[0]) : ''),
+            () => refuser(new Error('__autableau_input_annule__')));
+    });
+}
+window.demanderUneValeurPython = demanderUneValeurPython;
+
+// CE QUE SKULPT LÈVE PORTE DÉJÀ SON NOM ET SA LIGNE : « ZeroDivisionError:
+// integer division or modulo by zero on line 3 ». On le remet dans la forme du
+// tableau — le nom de l'erreur d'abord, car c'est le mot qu'on apprend à
+// chercher, puis la ligne à part.
 function direLErreurPython(e) {
     if (!e) return 'Erreur inconnue';
-    // C'EST « repr » QUI SAIT LE NOM. L'objet levé par Brython ne porte pas sa
-    // classe en clair — ni « __class__.$infos », ni « constructor.name », on a
-    // essayé les deux — mais « repr(e) » rend exactement
-    // « ZeroDivisionError('division by zero') ». Or « ZeroDivisionError » est
-    // précisément le mot qu'on apprend à chercher : sans lui, l'élève lit
-    // « division by zero » sans savoir de quelle famille d'erreur il s'agit.
-    let classe = '', dit = '';
-    try {
-        const r = String(window.__BRYTHON__.builtins.repr(e));
-        const m = r.match(/^([A-Za-z_][\w.]*)\((.*)\)$/s);
-        if (m) {
-            classe = m[1];
-            dit = m[2].replace(/^(['"])([\s\S]*)\1$/, '$2');
-        } else { dit = r; }
-    } catch (x) { /* on retombe sur « args » juste dessous */ }
-    if (!dit) { try { dit = e.args !== undefined ? String(e.args) : ''; } catch (x) { dit = ''; } }
-    if (!dit) { try { dit = String(e.message || e); } catch (x) { dit = ''; } }
-    // LA LIGNE FAUTIVE, RENDUE AU PROGRAMME. Brython compte à partir de la
-    // première ligne de ce qu'on lui a donné — préambule de capture compris.
-    // Sans cette soustraction, une erreur de la première ligne du programme
-    // s'annonçait à la septième, dans un texte que l'élève n'a jamais écrit.
+    let texte = '';
+    try { texte = String(e.toString ? e.toString() : e); } catch (x) { texte = ''; }
+    if (!texte) { try { texte = String(e.message || e); } catch (x) { texte = 'Erreur inconnue'; } }
     let ligne = null;
-    try {
-        let brut = NaN;
-        if (e.lineno !== undefined && e.lineno !== null) brut = Number(e.lineno);
-        else if (e.__traceback__ && e.__traceback__.tb_lineno !== undefined) {
-            // Une erreur d'exécution ne porte pas sa ligne : c'est sa trace
-            // qui l'a, et l'on descend jusqu'au dernier appel — celui qui a
-            // vraiment échoué, et non celui qui a lancé le programme.
-            let t = e.__traceback__;
-            while (t && t.tb_next) t = t.tb_next;
-            brut = Number(t.tb_lineno);
-        }
-        if (Number.isFinite(brut)) {
-            const vraie = brut - PYTHON_LIGNES_DE_CAPTURE;
-            if (vraie >= 1) ligne = vraie;
-        }
-    } catch (x) { ligne = null; }
-    return (classe ? classe + ' : ' : '') + dit + (ligne ? '\n(ligne ' + ligne + ')' : '');
+    const m = texte.match(/\s+on line (\d+)\s*$/);
+    if (m) { ligne = Number(m[1]); texte = texte.slice(0, m.index); }
+    // Skulpt sépare le nom du reste par « : », comme Python.
+    const n = texte.match(/^([A-Za-z_][\w.]*)\s*:\s*([\s\S]*)$/);
+    const sortie = n ? (n[1] + ' : ' + n[2]) : texte;
+    return sortie + (ligne ? '\n(ligne ' + ligne + ')' : '');
 }
 
 // Le contenu de la fenêtre, redessiné. On ne réécrit PAS le champ pendant
@@ -48792,7 +48977,7 @@ function ouvrirUneFenetrePython(options) {
     // ON PRÉPARE LE MOTEUR SANS ATTENDRE QU'ON CLIQUE. Le temps d'écrire trois
     // lignes, il est là : le premier « Exécuter » ne fait plus patienter la
     // classe. Un échec ici ne dit rien — on le dira au moment d'exécuter.
-    preparerPython(false).catch(() => { /* on réessaiera à l'exécution */ });
+    preparerPython().catch(() => { /* on réessaiera à l'exécution */ });
     if (typeof showToast === 'function') showToast('🐍 Python est sur le tableau');
     return fenetre;
 }
@@ -48800,27 +48985,96 @@ window.ouvrirUneFenetrePython = ouvrirUneFenetrePython;
 
 // EXÉCUTER. Rend « { sortie, erreur } » — jamais une exception : un programme
 // d'élève a le droit de planter, c'est même ce qu'on lui apprend à lire.
-async function executerDuPython(code) {
+async function executerDuPython(code, options) {
     const source = String(code || '');
+    const opts = options || {};
     try {
-        await preparerPython(leCodeImporte(source));
+        await preparerPython();
     } catch (e) {
-        return { sortie: '', erreur: null, reseau: true };
+        return { sortie: '', erreur: null, moteurAbsent: true };
     }
-    numeroDExecution++;
-    window.SORTIE_PYTHON = [];
-    const relire = () => {
-        try { return (window.SORTIE_PYTHON || []).map(m => String(m)).join(''); }
-        catch (x) { return ''; }
-    };
+    if (pythonEnCours) {
+        return { sortie: '', erreur: 'Un programme tourne déjà. Arrêtez-le d\'abord.' };
+    }
+    const morceaux = [];
+    const relire = () => morceaux.join('');
+    // LA TORTUE DESSINE DANS LA FENÊTRE QUI L'A LANCÉE, et nulle part ailleurs.
+    //
+    // ON N'EFFACE PAS SA TOILE NOUS-MÊMES : Skulpt la refait à chaque import du
+    // module. Mesuré — un grand tracé de 746 pixels d'encre, puis un petit de
+    // 70 : le grand a bien disparu, sans qu'on y touche. On avait d'abord ajouté
+    // un effacement et un oubli du module ; sabotés l'un et l'autre, aucun
+    // contrôle ne tombait, et la mesure a dit pourquoi.
+    const zoneTortue = opts.tortue || null;
+    if (zoneTortue) {
+        if (!zoneTortue.id) zoneTortue.id = 'py-tortue-' + (++numeroDeTortue);
+        Sk.TurtleGraphics = Sk.TurtleGraphics || {};
+        Sk.TurtleGraphics.target = zoneTortue.id;
+        Sk.TurtleGraphics.width = Math.max(120, Math.round(zoneTortue.clientWidth || 360));
+        Sk.TurtleGraphics.height = Math.max(100, Math.round(zoneTortue.clientHeight || 260));
+    }
+    Sk.configure({
+        output: (t) => { morceaux.push(String(t)); },
+        read: (nom) => {
+            if (!Sk.builtinFiles || Sk.builtinFiles.files[nom] === undefined) {
+                throw new Error("File not found: '" + nom + "'");
+            }
+            return Sk.builtinFiles.files[nom];
+        },
+        inputfun: demanderUneValeurPython,
+        inputfunTakesPrompt: true,
+        __future__: Sk.python3,
+        // LA LIMITE EST CELLE DE LA MAISON, sauf si l'on en demande une autre :
+        // une vérification ne peut pas attendre trente secondes pour éprouver
+        // qu'un programme sans fin finit par s'arrêter.
+        execLimit: opts.limite || PYTHON_LIMITE_MS,
+        yieldLimit: PYTHON_RESPIRE_MS,
+        // SANS CES DEUX-LÀ, LE TABLEAU EST GELÉ pendant qu'un programme tourne.
+        // Mesuré sur une boucle sans fin laissée deux secondes : zéro battement
+        // d'horloge dans la page, rien ne répond, pas même « Arrêter ». Avec,
+        // cent battements sur les mêmes deux secondes.
+        killableWhile: true,
+        killableFor: true
+    });
+    if (typeof opts.avantDeLancer === 'function') opts.avantDeLancer();
+    pythonArret = false;
+    pythonEnCours = true;
     try {
-        window.__BRYTHON__.runPythonSource(
-            PYTHON_CAPTURE + source, 'autableau_' + numeroDExecution);
+        await Sk.misceval.asyncToPromise(
+            () => Sk.importMainWithBody('<tableau>', false, source, true),
+            {
+                '*': () => {
+                    if (pythonArret) throw new Sk.builtin.Exception('Programme arrêté');
+                }
+            });
         return { sortie: relire(), erreur: null };
     } catch (e) {
-        // Ce qui a été imprimé AVANT l'erreur est déjà dans la pile : on écrit
-        // au fil de l'exécution, précisément pour ne pas le perdre ici.
+        // Ce qui a été imprimé AVANT l'erreur est gardé : on écrit au fil de
+        // l'exécution, précisément pour ne pas le perdre ici.
+        if (e && String(e.message || '') === '__autableau_input_annule__') {
+            return { sortie: relire(), erreur: 'Programme arrêté : aucune valeur donnée.' };
+        }
+        // L'ARRÊT DEMANDÉ N'EST PAS UNE FAUTE DE L'ÉLÈVE. Skulpt le rend sous
+        // la forme « Exception : Programme arrêté at <unknown> » — un message
+        // qui laisse croire à un plantage. On le dit en clair.
+        if (pythonArret) {
+            return { sortie: relire(), erreur: 'Programme arrêté.', arrete: true };
+        }
+        // ET LA LIMITE DE TRENTE SECONDES NON PLUS : le programme n'a pas eu
+        // tort, il a été trop long. On dit ce qui s'est passé et combien.
+        const txt = (e && e.toString) ? String(e.toString()) : '';
+        if (/TimeLimitError/.test(txt)) {
+            return {
+                sortie: relire(), tropLong: true,
+                erreur: 'Le programme a été arrêté au bout de '
+                    + Math.round((opts.limite || PYTHON_LIMITE_MS) / 1000) + ' secondes.\n'
+                    + 'S\'il doit durer plus longtemps, il y a sans doute une boucle sans fin.'
+            };
+        }
         return { sortie: relire(), erreur: direLErreurPython(e) };
+    } finally {
+        pythonEnCours = false;
+        pythonArret = false;
     }
 }
 window.executerDuPython = executerDuPython;

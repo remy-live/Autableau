@@ -2427,6 +2427,7 @@ body.sans-tiroirs #donate-float-btn {
 #bar-style.ctx-line .group-line,
 #bar-style.ctx-surligneur .group-surligneur,
 #bar-style.ctx-text .group-text,
+#bar-style.ctx-python .group-python,
 #bar-style.ctx-zindex .group-zindex,
 #bar-style.ctx-lock .group-lock,
 #bar-document.ctx-document .group-document {
@@ -13708,6 +13709,48 @@ body.focus-mode #bar-document.vertical.visible { transform: translateY(-50%); }
 
 .html-postit-python .py-lancer:hover { background: #0ecfa6; }
 .html-postit-python .py-lancer:disabled { background: #4a5a58; color: #9aa; cursor: progress; }
+
+/* ARRÊTER. Rouge, parce qu'on le cherche dans l'urgence — une boucle qui ne
+   finit pas — et qu'un bouton de la même couleur que « Exécuter » se confond
+   avec lui au moment précis où il ne faut pas se tromper. */
+.html-postit-python .py-arreter {
+    border: none;
+    border-radius: 6px;
+    padding: 5px 14px;
+    background: #d63031;
+    color: #fff;
+    font-weight: 700;
+    font-size: 13px;
+    cursor: pointer;
+}
+
+.html-postit-python .py-arreter:hover { background: #e84343; }
+
+/* POSER LE DESSIN. Bleu : ce n'est ni lancer ni arrêter, c'est emporter le
+   résultat sur le tableau. */
+.html-postit-python .py-poser {
+    border: none;
+    border-radius: 6px;
+    padding: 5px 14px;
+    background: #0984e3;
+    color: #fff;
+    font-weight: 700;
+    font-size: 13px;
+    cursor: pointer;
+}
+
+.html-postit-python .py-poser:hover { background: #2a9bf0; }
+
+/* LA ZONE DE TRACÉ. Fond blanc quoi qu'il arrive : la tortue dessine en noir
+   par défaut, et sur le fond sombre de la fenêtre on ne verrait rien. */
+.html-postit-python .py-tortue {
+    background: #ffffff;
+    border-radius: 6px;
+    min-height: 180px;
+    flex: 1 1 auto;
+    overflow: hidden;
+    position: relative;
+}
 
 .html-postit-python .py-etat {
     font-size: 11.5px;

@@ -55,6 +55,18 @@ Le détail figure dans `lib/maps/LICENCES.md`. En résumé :
 > continuer de les proposer sous ODbL, avec mention de la source. La licence
 > de l'application ne s'y substitue pas.
 
+## Programmation
+
+| Bibliothèque | Version | Licence | Auteur |
+|---|---|---|---|
+| [Skulpt](https://skulpt.org/) (`lib/skulpt`) | 1.2.0 | MIT | Scott Graham et les contributeurs du projet Skulpt |
+
+Skulpt est un interpréteur Python écrit en JavaScript : il exécute le programme
+de l'élève DANS la page, sans serveur et sans réseau. Les deux fichiers —
+l'interpréteur et sa bibliothèque standard, 947 Ko à eux deux — ne sont pas
+chargés au démarrage du tableau, mais à la première exécution d'un programme.
+Le texte de la licence est conservé dans `lib/skulpt/LICENSE`.
+
 ## Vérifier ce fichier
 
 Les versions ci-dessus ont été relevées dans les fichiers eux-mêmes. En

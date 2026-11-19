@@ -1,48 +1,28 @@
 // PYTHON SUR LE TABLEAU.
 //
 // « On pourrait envisager un compilateur Python inline ? »
-// « Je ne veux pas les embarquer hors ligne, ça fait trop gros ; quand on le
-// charge, on appelle les CDN. »
+// « On pourrait intégrer skulpt.org ??? »
 //
 // Le programme s'exécute DANS la page — le cadre vers un autre site marchait,
 // mais le code écrit devant la classe ne partait pas avec la séance, et une
 // salle dont le pare-feu bloque ce site-là n'avait plus rien.
 //
-// CE QUE CETTE SUITE TIENT — et ce qu'elle ne tient pas. Brython n'est pas
-// embarqué : aucune de ces vérifications ne le télécharge, et aucune ne juge
-// la conformité de son Python. On éprouve ce qui est À NOUS :
+// ET LE MOTEUR EST MAINTENANT DANS L'APPLICATION. Il ne l'était pas : « je ne
+// veux pas les embarquer hors ligne, ça fait trop gros ; quand on le charge, on
+// appelle les CDN. » C'était juste — Brython pèse 6,1 Mo. Skulpt en fait 947
+// Ko, six fois et demie moins, et le calcul change avec le poids. Python au
+// tableau était la seule pièce de l'application qui demandait le réseau ; elle
+// ne le demande plus, et c'est la première chose que ce chapitre éprouve.
 //
-//   — la fenêtre est un post-it d'un mode de plus, et rien du reste n'a bougé ;
-//   — le programme ET sa sortie partent avec le tableau ;
-//   — la tabulation indente, le collage ne rogne pas l'indentation, la copie
-//     rend le programme et non la note vide qui dort derrière ;
-//   — on ne télécharge la bibliothèque standard QUE si le programme importe ;
-//   — le moteur n'est demandé qu'une fois, même à deux fenêtres ;
-//   — sans réseau, on le DIT, au lieu de laisser une fenêtre qui ne répond pas.
+// CE QU'ON Y A GAGNÉ EN CHEMIN : « input() », qui demande la valeur dans une
+// boîte à nous au lieu de refuser, et la tortue, dont le tracé se pose au
+// tableau comme un objet qu'on déplace et qu'on annote.
+//
+// ET CE QUI EST ÉPROUVÉ ICI, c'est ce qui est À NOUS : on ne juge pas la
+// conformité du Python de Skulpt, on vérifie qu'un programme de classe tourne,
+// que ses erreurs se lisent, qu'une boucle sans fin ne prend pas le tableau en
+// otage, et que rien ne part vers l'extérieur.
 const { creerRapport, ouvrirApp } = require('./harness.cjs');
-
-// Un moteur de comédie : il ne sait rien de Python, mais il pose les deux
-// noms que notre chargeur attend. C'est notre chargement qu'on éprouve, pas
-// celui de Brython.
-const FAUX_MOTEUR = `
-    window.brython = function () { window.__BRYTHON__.lance = true; };
-    window.__BRYTHON__ = { builtins: { repr: (e) => String(e) },
-                           runPythonSource: function () { throw new Error('moteur de comédie'); } };
-`;
-
-// Compte ce que la page va chercher au CDN, et sert ce qu'on veut bien.
-async function guetterLeCdn(context, options) {
-    const opts = options || {};
-    const vues = [];
-    await context.route('https://cdn.jsdelivr.net/**', (route) => {
-        const url = route.request().url();
-        vues.push(url.split('/').pop());
-        if (opts.enPanne) return route.abort('failed');
-        route.fulfill({ status: 200, contentType: 'application/javascript',
-                        body: url.endsWith('brython_stdlib.js') ? '/* bibliothèque */' : FAUX_MOTEUR });
-    });
-    return vues;
-}
 
 module.exports = async function (browser) {
     const r = creerRapport('Python sur le tableau');
@@ -53,30 +33,16 @@ module.exports = async function (browser) {
     {
         const { context, page, erreurs } = await ouvrirApp(browser);
         await page.waitForFunction(() => typeof ouvrirUneFenetrePython === 'function'
-            && typeof leCodeImporte === 'function', { timeout: 20000 });
-        // Rien ne doit partir au CDN dans ce bloc : on le vérifie à la fin.
-        const vues = await guetterLeCdn(context);
+            && typeof executerDuPython === 'function', { timeout: 20000 });
+        // RIEN NE DOIT PARTIR VERS L'EXTÉRIEUR, de tout le chapitre. On compte
+        // ici ce qui n'est ni un fichier du dossier, ni une donnée en ligne.
+        const dehors = [];
+        page.on('request', (req) => {
+            const u = req.url();
+            if (!/^(file|data|blob|about):/.test(u)) dehors.push(u);
+        });
 
         // --- la lecture des « import »
-        const lus = await page.evaluate(() => ({
-            simple: leCodeImporte('import math\nprint(1)\n'),
-            depuis: leCodeImporte('from random import randint\n'),
-            indente: leCodeImporte('def f():\n    import math\n    return math.pi\n'),
-            aucun: leCodeImporte('for i in range(3):\n    print(i)\n'),
-            vide: leCodeImporte(''),
-            // Le mot dans une chaîne ou un commentaire ne compte pas comme un
-            // import — mais un faux positif ne coûte qu'un téléchargement,
-            // alors qu'un faux négatif coûterait une erreur incompréhensible.
-            motDansUnTexte: leCodeImporte('print("il faut importer le fichier")\n')
-        }));
-        r.egal('« import math » demande la bibliothèque', lus.simple, true);
-        r.egal('« from random import … » aussi', lus.depuis, true);
-        r.egal('un import à l\'intérieur d\'une fonction aussi', lus.indente, true);
-        r.egal('une boucle toute simple ne la demande pas', lus.aucun, false);
-        r.egal('un programme vide non plus', lus.vide, false);
-        r.egal('et le mot « importer » dans une phrase n\'est pas un import',
-            lus.motDansUnTexte, false);
-
         // --- la fenêtre est un post-it d'un mode de plus
         const ouverte = await page.evaluate(() => {
             const f = ouvrirUneFenetrePython({ code: 'print("bonjour")\n' });
@@ -253,135 +219,331 @@ module.exports = async function (browser) {
         r.egal('mais on n\'écrase pas le champ sous les doigts de qui écrit',
             redessin.pendantLaFrappe, 'je tape encore');
 
-        // OUVRIR UNE FENÊTRE PRÉCHAUFFE LE MOTEUR, et lui seul : le temps
-        // d'écrire trois lignes il est là, et le premier « Exécuter » ne fait
-        // pas patienter la classe. Mais les 4,8 Mo de bibliothèque attendent
-        // qu'un programme écrive « import » — c'est tout l'objet du partage.
-        r.egal('ouvrir la fenêtre préchauffe le moteur, et jamais la bibliothèque',
-            vues.filter((v, i) => vues.indexOf(v) === i), ['brython.min.js']);
+        // ET RIEN N'EST PARTI DEHORS. C'est le cœur du changement : ouvrir
+        // la fenêtre, écrire, coller, exécuter — aucune requête ne sort.
+        r.egal('rien n\'est allé chercher quoi que ce soit dehors', dehors.slice(), []);
         r.verifie('aucune erreur de page', erreurs.length === 0, erreurs.join(' | '));
         await context.close();
     }
 
     // ==================================================================
-    // 2. LE CHARGEMENT À LA DEMANDE
-    // « Je ne veux pas les embarquer hors ligne, ça fait trop gros. »
-    // Le moteur seul fait 1,3 Mo ; la bibliothèque 4,8 de plus. Un cours
-    // sans import n'a aucune raison de payer les 4,8.
-    // ==================================================================
-    {
-        const { context, page, erreurs } = await ouvrirApp(browser);
-        await page.waitForFunction(() => typeof preparerPython === 'function', { timeout: 20000 });
-        const vues = await guetterLeCdn(context);
-
-        await page.evaluate(() => preparerPython(false));
-        await page.waitForFunction(() => typeof window.brython === 'function', { timeout: 20000 });
-        r.egal('sans import, on ne télécharge que le moteur',
-            vues.slice(), ['brython.min.js']);
-
-        await page.evaluate(() => preparerPython(false));
-        await page.waitForTimeout(200);
-        r.egal('et on ne le retélécharge pas à la fenêtre suivante',
-            vues.slice(), ['brython.min.js']);
-
-        await page.evaluate(() => preparerPython(true));
-        await page.waitForTimeout(400);
-        r.egal('un programme qui importe fait venir la bibliothèque, et elle seule',
-            vues.slice(), ['brython.min.js', 'brython_stdlib.js']);
-
-        await page.evaluate(() => preparerPython(true));
-        await page.evaluate(() => preparerPython(false));
-        await page.waitForTimeout(300);
-        r.egal('une fois là, plus rien n\'est redemandé',
-            vues.slice(), ['brython.min.js', 'brython_stdlib.js']);
-
-        r.verifie('aucune erreur de page', erreurs.length === 0, erreurs.join(' | '));
-        await context.close();
-    }
-
-    // ==================================================================
-    // 2 bis. C'EST « EXÉCUTER » QUI DÉCIDE, en lisant le programme.
-    // Les vérifications précédentes appelaient le chargeur à la main et
-    // disaient donc seulement qu'il obéit. Ici on part d'un PROGRAMME, ce
-    // qui est le vrai chemin : c'est la lecture du code qui doit épargner
-    // les 4,8 Mo, et non une consigne écrite dans le test.
+    // 2. PYTHON EST DANS L'APPLICATION, PAS SUR INTERNET
+    //
+    // C'est tout le changement. On le prouve deux fois : rien ne sort, et
+    // tout marche AVEC LE RÉSEAU COUPÉ — une salle sans wifi, un portable
+    // en mode avion, le pare-feu d'un collège.
     // ==================================================================
     {
         const { context, page, erreurs } = await ouvrirApp(browser);
         await page.waitForFunction(() => typeof executerDuPython === 'function', { timeout: 20000 });
-        const vues = await guetterLeCdn(context);
+        const dehors = [];
+        page.on('request', (req) => {
+            const u = req.url();
+            if (!/^(file|data|blob|about):/.test(u)) dehors.push(u);
+        });
 
-        await page.evaluate(() => executerDuPython('for i in range(3):\n    print(i)\n'));
-        await page.waitForTimeout(300);
-        r.egal('un programme sans import ne fait venir que le moteur',
-            vues.slice(), ['brython.min.js']);
+        await context.setOffline(true);
+        const horsLigne = await page.evaluate(() =>
+            executerDuPython('for i in range(3):\n    print(i * i)\n'));
+        r.egal('un programme tourne RÉSEAU COUPÉ', horsLigne.sortie, '0\n1\n4\n');
+        r.egal('et sans erreur', horsLigne.erreur, null);
 
-        await page.evaluate(() => executerDuPython('x = 2\nprint(x * 21)\n'));
-        await page.waitForTimeout(300);
-        r.egal('un deuxième non plus', vues.slice(), ['brython.min.js']);
+        const avecImport = await page.evaluate(() =>
+            executerDuPython('import math\nprint(round(math.pi, 3))\n'));
+        r.egal('la bibliothèque standard est là aussi, hors ligne',
+            avecImport.sortie, '3.142\n');
+        await context.setOffline(false);
 
-        await page.evaluate(() => executerDuPython('import math\nprint(math.pi)\n'));
-        await page.waitForTimeout(400);
-        r.egal('le premier « import » fait venir la bibliothèque, et seulement lui',
-            vues.slice(), ['brython.min.js', 'brython_stdlib.js']);
+        r.egal('et rien n\'est parti vers l\'extérieur', dehors.slice(), []);
+        r.verifie('aucune erreur de page', erreurs.length === 0, erreurs.join(' | '));
+        await context.close();
+    }
+
+    // ==================================================================
+    // 3. LE PROGRAMME S'EXÉCUTE VRAIMENT, ET SES ERREURS SE LISENT
+    //
+    // Un programme d'élève a le droit de planter : c'est même ce qu'on lui
+    // apprend à lire. Ce qu'on éprouve, c'est que le message porte LE NOM de
+    // l'erreur — le mot qu'on apprend à chercher — et LA BONNE LIGNE.
+    // ==================================================================
+    {
+        const { context, page, erreurs } = await ouvrirApp(browser);
+        await page.waitForFunction(() => typeof executerDuPython === 'function', { timeout: 20000 });
+        const faire = (code, o) => page.evaluate(
+            ([c, opt]) => executerDuPython(c, opt), [code, o || {}]);
+
+        const accents = await faire('eleve = "Zoé"\nprint(f"Bonjour {eleve} !")\n');
+        r.egal('les accents traversent le programme', accents.sortie, 'Bonjour Zoé !\n');
+
+        const faute = await faire('a = 1\nb = 0\nprint(a / b)\n');
+        r.verifie('l\'erreur porte son nom',
+            /ZeroDivisionError/.test(faute.erreur || ''), JSON.stringify(faute));
+        r.verifie('ET LA BONNE LIGNE — la troisième, celle que l\'élève a écrite',
+            /\(ligne 3\)/.test(faute.erreur || ''),
+            JSON.stringify(faute) + ' — décalée de six lignes du temps où un préambule précédait le programme');
+
+        const avant = await faire('print("avant")\nprint(1 / 0)\n');
+        r.egal('ce qui a été affiché AVANT l\'erreur est gardé', avant.sortie, 'avant\n');
+        r.verifie('et l\'erreur est dite quand même', /ZeroDivisionError/.test(avant.erreur || ''),
+            JSON.stringify(avant));
 
         r.verifie('aucune erreur de page', erreurs.length === 0, erreurs.join(' | '));
         await context.close();
     }
 
     // ==================================================================
-    // 3. SANS RÉSEAU, ON LE DIT
-    // C'est le seul morceau de l'application qui demande une connexion.
-    // Une fenêtre qui ne répond pas passerait pour une panne ; une phrase
-    // qui l'explique est une information.
+    // 4. UNE BOUCLE SANS FIN NE PREND PAS LE TABLEAU EN OTAGE
+    //
+    // C'est la faute la plus fréquente de l'année : on oublie d'incrémenter
+    // le compteur. Si le tableau gèle, le cours s'arrête — et il GELAIT :
+    // mesuré sur deux secondes de boucle sans fin, zéro battement d'horloge
+    // dans la page, rien ne répond, pas même le bouton « Arrêter ».
     // ==================================================================
     {
         const { context, page, erreurs } = await ouvrirApp(browser);
         await page.waitForFunction(() => typeof executerDuPython === 'function', { timeout: 20000 });
-        await guetterLeCdn(context, { enPanne: true });
 
-        const rate = await page.evaluate(() => executerDuPython('print(1)\n'));
-        r.egal('le moteur injoignable ne lève pas d\'exception : il se déclare',
-            { reseau: rate.reseau, erreur: rate.erreur }, { reseau: true, erreur: null });
-
-        const dit = await page.evaluate(async () => {
-            ouvrirUneFenetrePython({ code: 'print(1)\n' });
-            await new Promise(ok => setTimeout(ok, 300));
-            const el = document.querySelector('.html-postit.en-python');
-            el.querySelector('.py-lancer').click();
-            await new Promise(ok => setTimeout(ok, 900));
-            const sortie = el.querySelector('.py-sortie');
-            return { texte: sortie.textContent, rouge: sortie.classList.contains('py-rate'),
-                     boutonRendu: !el.querySelector('.py-lancer').disabled,
-                     etat: el.querySelector('.py-etat').textContent,
-                     garde: (htmlPostits.find(p => p.mode === 'python') || {}).sortie };
+        const pouls = await page.evaluate(async () => {
+            let battements = 0;
+            const horloge = setInterval(() => { battements++; }, 20);
+            const t = Date.now();
+            const promesse = executerDuPython('i = 0\nwhile True:\n    i += 1\n', { limite: 1500 });
+            const r = await promesse;
+            clearInterval(horloge);
+            return { battements, erreur: r.erreur, tropLong: !!r.tropLong, ms: Date.now() - t };
         });
-        r.verifie('la fenêtre dit que Python n\'a pas pu être chargé',
-            /pas pu être chargé/i.test(dit.texte), JSON.stringify(dit.texte));
-        r.verifie('elle dit aussi que c\'est la seule fenêtre qui demande une connexion',
-            /connexion/i.test(dit.texte), JSON.stringify(dit.texte));
-        // UN ÉCHEC SE VOIT SANS LE LIRE. La classe seule ne prouve rien : ce
-        // qu'on veut, c'est que la couleur change VRAIMENT — c'est ce qu'on
-        // cherche des yeux quand un programme ne fait pas ce qu'on annonçait.
-        const couleurs = await page.evaluate(() => {
-            const s = document.querySelector('.html-postit.en-python .py-sortie');
-            const rate = getComputedStyle(s).color;
-            s.classList.remove('py-rate');
-            const normale = getComputedStyle(s).color;
-            s.classList.add('py-rate');
-            return { rate, normale };
-        });
-        r.verifie('le message se voit comme un échec, et pas seulement par sa classe',
-            dit.rouge && couleurs.rate !== couleurs.normale, JSON.stringify(couleurs));
-        r.verifie('et le bouton est rendu : on peut réessayer quand le réseau revient',
-            dit.boutonRendu && dit.etat === '', JSON.stringify(dit));
+        r.verifie('LE TABLEAU RESPIRE PENDANT QU\'UN PROGRAMME TOURNE',
+            pouls.battements > 30,
+            pouls.battements + ' battements en une seconde et demie — zéro quand les boucles n\'étaient pas interruptibles');
+        r.verifie('et la boucle sans fin finit par s\'arrêter d\'elle-même',
+            pouls.tropLong === true, JSON.stringify(pouls));
+        r.verifie('et au bout du temps demandé, non de celui de la maison',
+            pouls.ms < 5000, pouls.ms + ' ms pour une limite de 1500');
+        r.verifie('le message dit ce qui s\'est passé, et en combien de temps',
+            /2 secondes/.test(pouls.erreur || '') && /boucle sans fin/.test(pouls.erreur || ''),
+            JSON.stringify(pouls.erreur));
 
-        // Le réseau revient : on ne reste pas condamné pour la séance.
-        await context.unroute('https://cdn.jsdelivr.net/**');
-        const vues = await guetterLeCdn(context);
-        await page.evaluate(() => preparerPython(false));
-        await page.waitForFunction(() => typeof window.brython === 'function', { timeout: 20000 });
-        r.egal('le réseau revenu, le moteur se redemande', vues.slice(), ['brython.min.js']);
+        // ET « ARRÊTER » RÉPOND TOUT DE SUITE, sans attendre la limite.
+        const arret = await page.evaluate(async () => {
+            const t = Date.now();
+            const promesse = executerDuPython('while True:\n    pass\n');
+            setTimeout(() => arreterLePython(), 300);
+            const r = await promesse;
+            return { ms: Date.now() - t, erreur: r.erreur, arrete: !!r.arrete };
+        });
+        r.verifie('« Arrêter » coupe le programme en moins d\'une seconde',
+            arret.arrete === true && arret.ms < 1000, JSON.stringify(arret));
+        r.egal('et le dit comme un arrêt, non comme une faute', arret.erreur, 'Programme arrêté.');
+
+        // LA LIMITE DE LA MAISON EST GÉNÉREUSE : un calcul d'une seconde et
+        // demie, parfaitement légitime, ne doit pas être coupé.
+        const longMaisHonnete = await page.evaluate(async () => {
+            const t = Date.now();
+            const r = await executerDuPython('s = 0\nfor i in range(120000):\n    s += i\nprint(s)\n');
+            return { ms: Date.now() - t, sortie: r.sortie, erreur: r.erreur };
+        });
+        r.verifie('un calcul long mais honnête va jusqu\'au bout',
+            longMaisHonnete.sortie === '7199940000\n' && !longMaisHonnete.erreur,
+            JSON.stringify(longMaisHonnete));
+
+        r.verifie('aucune erreur de page', erreurs.length === 0, erreurs.join(' | '));
+        await context.close();
+    }
+
+    // ==================================================================
+    // 5. « input() » DEMANDE DANS UNE BOÎTE À NOUS
+    //
+    // L'ancien moteur ouvrait celle du NAVIGATEUR, bannie de toute
+    // l'application : elle n'a ni notre habillage ni le mode nuit, et sur
+    // vidéoprojecteur elle s'affiche avec l'adresse du site en gros. On
+    // refusait donc « input() » tout court.
+    // ==================================================================
+    {
+        const { context, page, erreurs } = await ouvrirApp(browser);
+        await page.waitForFunction(() => typeof executerDuPython === 'function', { timeout: 20000 });
+
+        const promesse = page.evaluate(() =>
+            executerDuPython('n = input("Ton nombre ?")\nprint("le double de", n, "est", int(n) * 2)\n'));
+        await page.waitForTimeout(1200);
+        const boite = await page.evaluate(() => {
+            const m = document.getElementById('custom-prompt-modal');
+            const t = m && m.querySelector('h3, .prompt-titre, #custom-prompt-title');
+            return { ouverte: !!(m && m.getClientRects().length),
+                     titre: t ? t.textContent.trim() : null };
+        });
+        r.verifie('une boîte DU TABLEAU s\'ouvre', boite.ouverte === true, JSON.stringify(boite));
+        r.egal('et elle porte l\'invite du programme', boite.titre, 'Ton nombre ?');
+
+        await page.evaluate(() => {
+            const c = document.querySelector('#custom-prompt-modal input[type=text]');
+            if (c) { c.value = '21'; c.dispatchEvent(new Event('input', { bubbles: true })); }
+        });
+        // ON CLIQUE PAR LE CODE, et non par la souris : si la boîte ne
+        // s'ouvre pas, un clic de souris attend trente secondes et fait
+        // PLANTER la vérification, là où elle doit simplement tomber.
+        await page.evaluate(() => {
+            const b = document.getElementById('custom-prompt-ok');
+            if (b) b.click();
+        });
+        const rendu = await promesse;
+        r.egal('la valeur donnée revient au programme',
+            rendu.sortie, 'le double de 21 est 42\n');
+
+        r.verifie('aucune erreur de page', erreurs.length === 0, erreurs.join(' | '));
+        await context.close();
+    }
+
+    // ==================================================================
+    // 6. LA TORTUE DESSINE, ET SON TRACÉ VA AU TABLEAU
+    //
+    // C'est tout l'intérêt de l'avoir ICI plutôt que sur un autre site : le
+    // dessin devient un objet du tableau, qu'on déplace, qu'on agrandit et
+    // sur lequel on écrit au crayon — « regardez l'angle, là ».
+    // ==================================================================
+    {
+        const { context, page, erreurs } = await ouvrirApp(browser);
+        await page.waitForFunction(() => typeof ouvrirUneFenetrePython === 'function', { timeout: 20000 });
+
+        r.egal('un programme qui n\'importe pas la tortue ne dessine pas',
+            await page.evaluate(() => leCodeDessine('print(1)')), false);
+        r.egal('« import turtle », si',
+            await page.evaluate(() => leCodeDessine('import turtle\nt = turtle.Turtle()')), true);
+
+        await page.evaluate(() => {
+            images.length = 0;
+            ouvrirUneFenetrePython({ code: 'import turtle\nt = turtle.Turtle()\nt.speed(0)\n'
+                + 'for i in range(4):\n    t.forward(70)\n    t.left(90)\n' });
+        });
+        await page.waitForTimeout(500);
+        r.egal('la zone de tracé reste cachée tant qu\'on n\'a pas lancé',
+            await page.evaluate(() => document.querySelector('.py-tortue').hidden), true);
+
+        await page.evaluate(() => {
+            const b = document.querySelector('.py-lancer');
+            if (b) b.click();
+        });
+        await page.waitForTimeout(2500);
+        const trace = await page.evaluate(() => ({
+            zone: !document.querySelector('.py-tortue').hidden,
+            poser: !document.querySelector('.py-poser').hidden,
+            encre: laTortueADessine(document.querySelector('.py-tortue'))
+        }));
+        r.verifie('la tortue a dessiné, et la zone s\'ouvre',
+            trace.zone && trace.encre, JSON.stringify(trace));
+        r.verifie('et l\'on propose de poser le dessin au tableau',
+            trace.poser === true, JSON.stringify(trace));
+
+        await page.evaluate(() => {
+            const b = document.querySelector('.py-poser');
+            if (b) b.click();
+        });
+        await page.waitForTimeout(400);
+        const pose = await page.evaluate(() => images.map(i => ({
+            plugin: (i.pluginData || {}).id, l: Math.round(i.w), h: Math.round(i.h),
+            image: /^data:image\/png/.test(i.src || '')
+        })));
+        r.egal('le tracé est un objet du tableau', pose.length, 1, JSON.stringify(pose));
+        r.verifie('une vraie image, à la taille où elle a été tracée',
+            pose[0] && pose[0].image && pose[0].l > 50 && pose[0].h > 50, JSON.stringify(pose));
+
+        // ON RELANCE LE MÊME PROGRAMME, et il doit dessiner de nouveau.
+        //
+        // La tortue garde son module en mémoire, et avec lui la toile de la
+        // fois d'avant — une toile qui n'est plus dans la page, puisqu'on
+        // repart d'un tracé blanc. Sans l'oubli de ce module, la deuxième
+        // exécution dessinait dans le vide : la zone restait blanche et l'on
+        // croyait le programme muet. Or corriger puis relancer, c'est
+        // exactement ce qu'on fait devant une classe.
+        await page.evaluate(() => {
+            const b = document.querySelector('.py-lancer');
+            if (b) b.click();
+        });
+        await page.waitForTimeout(2500);
+        r.verifie('ET LA DEUXIÈME EXÉCUTION DESSINE AUSSI',
+            await page.evaluate(() => laTortueADessine(document.querySelector('.py-tortue'))),
+            'zone restée blanche — le module gardait la toile de la fois d\'avant');
+
+        // ET UN PROGRAMME QUI IMPORTE LA TORTUE SANS RIEN TRACER ne propose
+        // pas de poser une page blanche au tableau.
+        await page.evaluate(() => {
+            const o = htmlPostits.find(h => h.mode === 'python');
+            o.code = 'import turtle\nt = turtle.Turtle()\n';
+            document.querySelector('.py-code').value = o.code;
+        });
+        await page.evaluate(() => {
+            const b = document.querySelector('.py-lancer');
+            if (b) b.click();
+        });
+        await page.waitForTimeout(2000);
+        r.egal('rien de tracé, rien à poser',
+            await page.evaluate(() => document.querySelector('.py-poser').hidden), true);
+
+        r.verifie('aucune erreur de page', erreurs.length === 0, erreurs.join(' | '));
+        await context.close();
+    }
+
+    // ==================================================================
+    // 7. LE PROGRAMME ÉCRIT À LA MAIN AU TABLEAU SE LANCE
+    //
+    // On écrit le programme pendant le cours, dans un texte, comme le reste
+    // de la leçon. Le bouton ne paraît que si ce texte EST un programme :
+    // sous chaque titre et chaque consigne, il encombrerait la barre.
+    // ==================================================================
+    {
+        const { context, page, erreurs } = await ouvrirApp(browser);
+        await page.waitForFunction(() => typeof executerLeTexteDuTableau === 'function', { timeout: 20000 });
+
+        const lu = await page.evaluate(() => ({
+            boucle: leTexteEstDuPython('for i in range(3):\n    print(i)'),
+            unPrint: leTexteEstDuPython('print("bonjour")'),
+            fonction: leTexteEstDuPython('def double(x):\n    return 2 * x'),
+            lecon: leTexteEstDuPython('Il est important de relire la consigne.'),
+            titre: leTexteEstDuPython('Exercice 4 : les boucles'),
+            vide: leTexteEstDuPython('   ')
+        }));
+        r.verifie('une boucle, un print, une fonction : ce sont des programmes',
+            lu.boucle && lu.unPrint && lu.fonction, JSON.stringify(lu));
+        r.verifie('une consigne française n\'en est pas un, « important » ou non',
+            lu.lecon === false && lu.titre === false && lu.vide === false, JSON.stringify(lu));
+
+        const marche = await page.evaluate(async () => {
+            texts.length = 0; htmlPostits.length = 0;
+            const t = { id: nextId++, type: 'text', x: 100, y: 100,
+                        content: 'for i in range(3):\n    print(i * i)',
+                        color: '#000', fontSize: 24, fontFamily: 'Roboto', z: globalZ++ };
+            texts.push(t);
+            selectedItems = [{ type: 'text', id: t.id }];
+            updateStyleBarContext();
+            const barre = document.getElementById('bar-style').classList.contains('ctx-python');
+            const visible = !!document.querySelector('.group-python').getClientRects().length;
+            const f = executerLeTexteDuTableau();
+            await new Promise(k => setTimeout(k, 2500));
+            const el = document.querySelector('.html-postit[data-id="' + f.id + '"]');
+            return { barre, visible, code: f.code,
+                     sortie: el ? el.querySelector('.py-sortie').textContent : null,
+                     texteIntact: texts[0].content };
+        });
+        r.verifie('le bouton paraît dans la barre pour un texte qui est un programme',
+            marche.barre && marche.visible, JSON.stringify(marche));
+        r.egal('il emmène le programme dans une fenêtre',
+            marche.code, 'for i in range(3):\n    print(i * i)');
+        r.egal('et l\'exécute', marche.sortie, '0\n1\n4\n');
+        // LE TEXTE DU TABLEAU EST LA TRACE DE LA LEÇON : on ne le remplace pas
+        // par la fenêtre, et corriger dans la fenêtre ne défait pas ce qui a
+        // été écrit devant la classe.
+        r.egal('le texte écrit au tableau n\'a pas bougé',
+            marche.texteIntact, 'for i in range(3):\n    print(i * i)');
+
+        const consigne = await page.evaluate(() => {
+            const t = { id: nextId++, type: 'text', x: 100, y: 400,
+                        content: 'Exercice 4 : recopier le programme ci-dessus.',
+                        color: '#000', fontSize: 24, fontFamily: 'Roboto', z: globalZ++ };
+            texts.push(t);
+            selectedItems = [{ type: 'text', id: t.id }];
+            updateStyleBarContext();
+            return document.getElementById('bar-style').classList.contains('ctx-python');
+        });
+        r.egal('et il ne paraît pas sous une consigne', consigne, false);
 
         r.verifie('aucune erreur de page', erreurs.length === 0, erreurs.join(' | '));
         await context.close();
